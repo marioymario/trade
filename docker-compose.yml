@@ -1,0 +1,30 @@
+services:
+
+  trade:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: trade
+    container_name: trade
+    ports:
+      - "8888:8888"
+    env_file:
+      - .env
+    environment:
+      - TF_ENABLE_ONEDNN_OPTS=0
+      - TF_CPP_MIN_LOG_LEVEL=2
+      # Set timezone for logs
+      - TZ=America/Los_Angeles
+    volumes:
+      - ./notebooks:/work/notebooks
+      - ./files:/work/files
+      - ./data:/work/data
+    working_dir: /work
+    # Preferred for me:
+    #gpus: all
+    command: >
+      jupyter lab --ip=0.0.0.0 --no-browser --allow-root
+      --NotebookApp.token=''
+      --NotebookApp.password=''
+
+

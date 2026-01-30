@@ -1,0 +1,35 @@
+# Python
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Envs
+.venv/
+.miniconda/
+conda-meta/
+
+# Jupyter
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Data (ignore big stuff, keep package files like data/__init__.py)
+data/cache/
+data/raw/
+data/processed/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor (optional)
+*.swp
+*.swo
+.vscode/
+
+

@@ -1,0 +1,12 @@
+name: trade
+dependencies:
+  - pip:
+      - tensorflow
+      - numpy
+      - pandas
+      - matplotlib
+      - scipy
+      - requests
+      - ipykernel
+      - jupyterlab
+

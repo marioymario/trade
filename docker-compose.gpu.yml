@@ -1,0 +1,9 @@
+services:
+  trade:
+    gpus: all
+    shm_size: "1g"
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
