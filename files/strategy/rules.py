@@ -11,7 +11,7 @@ CONFIDENCE_ENTER = 0.60  # start conservative
 # Exit parameters (keep deterministic; make configurable later)
 ATR_MULT: float = 2.0          # initial stop distance
 TRAIL_ATR_MULT: float = 2.0    # trailing stop distance
-MAX_HOLD_BARS: int = 48        # you set this back to 48 ✅
+MAX_HOLD_BARS: int = 48        # set to 2 (ex) to test, changes.
 
 
 def compute_initial_stop(*, side: str, entry_price: float, atr: float) -> float:

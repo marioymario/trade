@@ -48,6 +48,8 @@ def _cadence_ok(df: pd.DataFrame, expected_step_s: int) -> bool:
 def main() -> None:
     cfg = load_trading_config()
     expected_step_s = _timeframe_to_seconds(cfg.timeframe)
+    last_decision_ts_ms: int | None = None
+
 
     logger.info(
         "🧪 State check starting",

@@ -1,31 +1,19 @@
 # files/data/storage.py
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 import pandas as pd
 
+from files.data.paths import raw_symbol_dir
 from files.utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-
-def _safe_name(s: str) -> str:
-    # file-system safe-ish; keeps things readable
-    return (
-        s.strip()
-        .replace("/", "_")
-        .replace(":", "_")
-        .replace(" ", "_")
-        .upper()
-    )
 
 
 def _ensure_utc_ts(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["timestamp"] = pd.to_datetime(out["timestamp"], utc=True, errors="coerce")
     out = out.dropna(subset=["timestamp"])
- 
     return out
 
 
@@ -40,14 +28,6 @@ def _ensure_schema(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _base_dir() -> Path:
-    return Path("data") / "raw"
-
-
-def _symbol_dir(exchange: str, symbol: str, timeframe: str) -> Path:
-    return _base_dir() / _safe_name(exchange) / _safe_name(symbol) / _safe_name(timeframe)
-
-
 def append_ohlcv_parquet(
     *,
     df: pd.DataFrame,
@@ -56,22 +36,20 @@ def append_ohlcv_parquet(
     timeframe: str,
 ) -> None:
     """
-    Append OHLCV bars to partitioned Parquet files.
-
-    Layout:
-      data/raw/{EXCHANGE}/{SYMBOL}/{TIMEFRAME}/date=YYYY-MM-DD/bars.parquet
-
-    We de-dupe within each partition (timestamp unique).
+    Layout (canonical):
+      data/raw/{exchange}/{SYMBOL}/{timeframe}/date=YYYY-MM-DD/bars.parquet
     """
     df = _ensure_schema(df)
     if len(df) == 0:
-        logger.warning("No bars to persist", extra={"exchange": exchange, "symbol": symbol, "timeframe": timeframe})
+        logger.warning(
+            "No bars to persist",
+            extra={"exchange": exchange, "symbol": symbol, "timeframe": timeframe},
+        )
         return
 
-    root = _symbol_dir(exchange, symbol, timeframe)
+    root: Path = raw_symbol_dir(exchange=exchange, symbol=symbol, timeframe=timeframe)
     root.mkdir(parents=True, exist_ok=True)
 
-    # group by UTC date
     df = df.copy()
     df["date"] = df["timestamp"].dt.date.astype(str)
 
@@ -80,8 +58,7 @@ def append_ohlcv_parquet(
         part_dir.mkdir(parents=True, exist_ok=True)
         path = part_dir / "bars.parquet"
 
-        chunk = chunk.drop(columns=["date"])
-        chunk = chunk.sort_values("timestamp")
+        chunk = chunk.drop(columns=["date"]).sort_values("timestamp")
 
         if path.exists():
             existing = pd.read_parquet(path)
@@ -107,17 +84,13 @@ def load_recent_ohlcv_parquet(
     timeframe: str,
     tail_n: int,
 ) -> pd.DataFrame:
-    """
-    Load last `tail_n` bars from the partitioned Parquet store.
-    """
     if tail_n <= 0:
         raise ValueError("tail_n must be > 0")
 
-    root = _symbol_dir(exchange, symbol, timeframe)
+    root = raw_symbol_dir(exchange=exchange, symbol=symbol, timeframe=timeframe)
     if not root.exists():
         return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
 
-    # read all partitions (simple + robust; optimize later if needed)
     files = sorted(root.glob("date=*/bars.parquet"))
     if not files:
         return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
