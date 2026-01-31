@@ -7,13 +7,11 @@ from typing import Iterable
 
 
 def _get_env(name: str, default: str | None = None) -> str | None:
-    """Read env var; returns default if missing/empty."""
     val = os.environ.get(name)
     return val if val is not None and val.strip() != "" else default
 
 
 def _parse_bool(val: str | None, default: bool = False) -> bool:
-    """Parse common truthy/falsey strings safely (strict on invalid)."""
     if val is None:
         return default
     v = val.strip().lower()
@@ -73,7 +71,6 @@ def _parse_csv(val: str | None) -> list[str]:
 
 
 def _validate_timeframe(timeframe: str) -> None:
-    # Strict: "1m", "5m", "15m", "1h", "1d"
     tf = timeframe.strip().lower()
     if len(tf) < 2:
         raise ValueError(f"TIMEFRAME invalid: {timeframe!r}")
@@ -126,6 +123,13 @@ class TradingConfig:
     symbol_allowlist: tuple[str, ...]
     min_bars: int
 
+    # Execution cost model (applied in paper broker)
+    fee_bps: float
+    slippage_bps: float
+
+    # Strategy hygiene
+    cooldown_bars: int
+
 
 @dataclass(frozen=True)
 class AlpacaConfig:
@@ -136,19 +140,21 @@ class AlpacaConfig:
 
 def load_trading_config() -> TradingConfig:
     """
-    Override via env vars:
+    Env vars:
       SYMBOL=BTC/USD
       TIMEFRAME=5m
       LOOP_SLEEP_SECONDS=30
       DRY_RUN=1
-
-    Data source:
       CCXT_EXCHANGE=coinbase
 
-    Safety knobs:
       MAX_ORDER_SIZE=1.0
       SYMBOL_ALLOWLIST=BTC/USD,ETH/USD
       MIN_BARS=200
+
+      FEE_BPS=8.5
+      SLIPPAGE_BPS=2.25
+
+      COOLDOWN_BARS=3
     """
     symbol = str(_get_env("SYMBOL", "BTC/USD"))
     timeframe = str(_get_env("TIMEFRAME", "5m"))
@@ -179,6 +185,26 @@ def load_trading_config() -> TradingConfig:
     if not ccxt_exchange:
         raise ValueError("CCXT_EXCHANGE must be non-empty")
 
+    fee_bps = _parse_float(
+        _get_env("FEE_BPS", "8.5"),
+        default=8.5,
+        name="FEE_BPS",
+        min_value=0.0,
+    )
+    slippage_bps = _parse_float(
+        _get_env("SLIPPAGE_BPS", "2.25"),
+        default=2.25,
+        name="SLIPPAGE_BPS",
+        min_value=0.0,
+    )
+
+    cooldown_bars = _parse_int(
+        _get_env("COOLDOWN_BARS", "3"),
+        default=3,
+        name="COOLDOWN_BARS",
+        min_value=0,
+    )
+
     allowlist = tuple(_parse_csv(_get_env("SYMBOL_ALLOWLIST")))
 
     _validate_symbol(symbol)
@@ -194,17 +220,13 @@ def load_trading_config() -> TradingConfig:
         max_order_size=max_order_size,
         symbol_allowlist=allowlist,
         min_bars=min_bars,
+        fee_bps=float(fee_bps),
+        slippage_bps=float(slippage_bps),
+        cooldown_bars=int(cooldown_bars),
     )
 
 
 def load_alpaca_config() -> AlpacaConfig:
-    """
-    Required:
-      ALPACA_API_KEY
-      ALPACA_SECRET_KEY
-    Optional:
-      ALPACA_BASE_URL (defaults to paper)
-    """
     api_key = _get_env("ALPACA_API_KEY")
     secret_key = _get_env("ALPACA_SECRET_KEY")
     base_url = _get_env("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
@@ -216,5 +238,3 @@ def load_alpaca_config() -> AlpacaConfig:
         )
 
     return AlpacaConfig(api_key=api_key, secret_key=secret_key, base_url=str(base_url))
-
-

@@ -55,3 +55,14 @@ features-check-gpu:
 state-check-gpu:
 	docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm trade python -m files.main_state_check
 
+report-gpu:
+	docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm \
+																										--env REPORT_DAYS_TAIL \
+																										--env REPORT_EXCHANGE \
+																										--env REPORT_SYMBOL \
+																										--env REPORT_TIMEFRAME \
+																										trade python -m files.utils.trade_report
+
+report:
+	docker compose -f docker-compose.yml run --rm trade python -m files.utils.trade_report
+
