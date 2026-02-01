@@ -1,13 +1,12 @@
-
 # files/core/types.py
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-
 StrategySide = Literal["LONG", "SHORT"]
 
+# These are required by files/strategy/filters.py
 Trend = Literal["up", "down", "flat"]
 VolRegime = Literal["low", "normal", "high"]
 
@@ -32,16 +31,8 @@ class ExitSignal:
     should_exit: bool
     reason: Optional[str] = None
 
-
 @dataclass(frozen=True)
 class Position:
-    """Local, strategy-oriented view of an open position.
-
-    Notes:
-    - entry_ts_ms is epoch milliseconds.
-    - stop_price is the *current* stop we intend to respect (v1: fixed at entry).
-    """
-
     symbol: str
     qty: float
     side: StrategySide
@@ -49,4 +40,7 @@ class Position:
     entry_ts_ms: Optional[int]
     stop_price: Optional[float] = None
 
-
+    # v2 trailing stop state:
+    # - LONG: highest favorable price since entry (bar high)
+    # - SHORT: lowest favorable price since entry (bar low)
+    trailing_anchor_price: Optional[float] = None

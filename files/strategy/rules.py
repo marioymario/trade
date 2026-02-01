@@ -1,4 +1,4 @@
-# files/strategy/rules.py
+## trade/files/strategy/rules.py
 from __future__ import annotations
 
 from files.core.types import EntrySignal, ExitSignal, MarketState, Position
@@ -11,7 +11,7 @@ CONFIDENCE_ENTER = 0.60  # start conservative
 # Exit parameters (keep deterministic; make configurable later)
 ATR_MULT: float = 2.0          # initial stop distance
 TRAIL_ATR_MULT: float = 2.0    # trailing stop distance
-MAX_HOLD_BARS: int = 48        # set to 2 (ex) to test, changes.
+MAX_HOLD_BARS: int = 2         # set to 2 to force exits during testing
 
 
 def compute_initial_stop(*, side: str, entry_price: float, atr: float) -> float:
@@ -47,29 +47,106 @@ def compute_trailing_stop(
       - new_stop (float) if computable
       - None if not computable (bad atr/close)
     """
+    new_stop, _new_anchor, _reason = compute_trailing_stop_update(
+        position=position,
+        latest_close=latest_close,
+        latest_high=None,
+        latest_low=None,
+        atr=atr,
+        atr_mult=atr_mult,
+    )
+    return new_stop
+
+
+def compute_trailing_stop_update(
+    *,
+    position: Position,
+    latest_close: float,
+    latest_high: float | None = None,
+    latest_low: float | None = None,
+    atr: float,
+    atr_mult: float = TRAIL_ATR_MULT,
+) -> tuple[float | None, float | None, str]:
+    """Compute trailing stop + updated anchor + reason.
+
+    v2 behavior:
+    - ATR-based
+    - Ratchet-only (stop only tightens)
+    - Side-aware
+    - Anchor-based:
+        LONG anchor = max(prev_anchor, latest_high or close)
+        SHORT anchor = min(prev_anchor, latest_low or close)
+
+    Candidate:
+        LONG: anchor - atr_mult * atr
+        SHORT: anchor + atr_mult * atr
+
+    Ratchet:
+        LONG: new_stop = max(prev_stop, candidate)
+        SHORT: new_stop = min(prev_stop, candidate)
+
+    Returns:
+      (new_stop_price, new_anchor_price, reason)
+    """
+    # Parse inputs
     try:
         close = float(latest_close)
         a = float(atr)
+        m = float(atr_mult)
     except Exception:
-        return None
+        return None, getattr(position, "trailing_anchor_price", None), "bad_inputs"
 
-    if not (close == close) or not (a == a) or a <= 0.0:
-        return None
+    if not (close == close):
+        return None, getattr(position, "trailing_anchor_price", None), "close_nan"
+    if not (a == a) or a <= 0.0:
+        return None, getattr(position, "trailing_anchor_price", None), "atr_missing_or_nonpositive"
+    if not (m == m) or m <= 0.0:
+        return None, getattr(position, "trailing_anchor_price", None), "atr_mult_nonpositive"
 
-    prev = position.stop_price
-    prev_ok = (prev is not None) and (float(prev) == float(prev))
+    # Fallbacks for anchor source
+    hi = close
+    lo = close
+    if latest_high is not None:
+        try:
+            hi = float(latest_high)
+        except Exception:
+            hi = close
+    if latest_low is not None:
+        try:
+            lo = float(latest_low)
+        except Exception:
+            lo = close
+
+    if not (hi == hi):
+        hi = close
+    if not (lo == lo):
+        lo = close
+
+    prev_stop = position.stop_price
+    prev_stop_ok = (prev_stop is not None) and (float(prev_stop) == float(prev_stop))
+
+    prev_anchor = getattr(position, "trailing_anchor_price", None)
+    prev_anchor_ok = (prev_anchor is not None) and (float(prev_anchor) == float(prev_anchor))
 
     if position.side == "LONG":
-        candidate = close - float(atr_mult) * a
-        if not prev_ok:
-            return float(candidate)
-        return float(max(float(prev), float(candidate)))
+        anchor = hi if not prev_anchor_ok else max(float(prev_anchor), hi)
+        candidate = anchor - m * a
+        if not (candidate == candidate) or candidate <= 0.0:
+            return None, float(anchor), "candidate_invalid"
+        if not prev_stop_ok:
+            return float(candidate), float(anchor), "init_stop"
+        new_stop = max(float(prev_stop), float(candidate))
+        return float(new_stop), float(anchor), "ratchet"
 
     # SHORT
-    candidate = close + float(atr_mult) * a
-    if not prev_ok:
-        return float(candidate)
-    return float(min(float(prev), float(candidate)))
+    anchor = lo if not prev_anchor_ok else min(float(prev_anchor), lo)
+    candidate = anchor + m * a
+    if not (candidate == candidate) or candidate <= 0.0:
+        return None, float(anchor), "candidate_invalid"
+    if not prev_stop_ok:
+        return float(candidate), float(anchor), "init_stop"
+    new_stop = min(float(prev_stop), float(candidate))
+    return float(new_stop), float(anchor), "ratchet"
 
 
 def evaluate_entry(features, market_state: MarketState) -> EntrySignal:
@@ -90,6 +167,24 @@ def evaluate_entry(features, market_state: MarketState) -> EntrySignal:
             side="LONG",
             confidence=0.0,
             reason="confidence_nan",
+        )
+
+    # DEV override (optional): FORCE_SIDE=LONG or FORCE_SIDE=SHORT
+    import os
+    force_side = os.getenv("FORCE_SIDE", "").strip().upper()
+    if force_side in ("LONG", "SHORT"):
+        if confidence >= CONFIDENCE_ENTER:
+            return EntrySignal(
+                should_enter=True,
+                side=force_side,
+                confidence=confidence,
+                reason=f"forced_{force_side.lower()}",
+            )
+        return EntrySignal(
+            should_enter=False,
+            side=force_side,
+            confidence=confidence,
+            reason=f"forced_{force_side.lower()}_but_low_confidence",
         )
 
     if market_state.trend == "up" and confidence >= CONFIDENCE_ENTER:
@@ -130,13 +225,6 @@ def evaluate_exit(
     market_state: MarketState,
     expected_step_s: int,
 ) -> ExitSignal:
-    """Evaluate whether we should exit an existing position.
-
-    Rules:
-    - Exit if market becomes non-tradable (safety).
-    - Exit on stop (uses position.stop_price; now can be trailed externally).
-    - Exit on time stop (max bars held).
-    """
     if not market_state.tradable:
         return ExitSignal(should_exit=True, reason=market_state.reason or "not_tradable")
 
@@ -145,22 +233,37 @@ def evaluate_exit(
     except Exception:
         return ExitSignal(should_exit=False, reason="missing_close")
 
-    # Stop (hard stop)
-    if position.stop_price is not None and position.stop_price == position.stop_price:
+    # Timestamp (ms) for guardrails + time stop
+    try:
+        ts = latest_features_row["timestamp"]
+        now_ts_ms = int(getattr(ts, "value", 0) // 1_000_000)  # ns -> ms
+    except Exception:
+        now_ts_ms = 0
+
+    same_bar_as_entry = (
+        position.entry_ts_ms is not None
+        and now_ts_ms > 0
+        and int(position.entry_ts_ms) == int(now_ts_ms)
+    )
+
+    # Stop (intrabar-aware), but skip stop checks on entry bar to avoid candle artifacts
+    if (not same_bar_as_entry) and position.stop_price is not None and position.stop_price == position.stop_price:
         sp = float(position.stop_price)
-        if position.side == "LONG" and close <= sp:
-            return ExitSignal(should_exit=True, reason="stop_hit")
-        if position.side == "SHORT" and close >= sp:
-            return ExitSignal(should_exit=True, reason="stop_hit")
 
-    # Time stop (bars held)
-    if position.entry_ts_ms is not None:
         try:
-            ts = latest_features_row["timestamp"]
-            now_ts_ms = int(getattr(ts, "value", 0) // 1_000_000)  # ns -> ms
+            bar_high = float(latest_features_row.get("high", close))
+            bar_low = float(latest_features_row.get("low", close))
         except Exception:
-            now_ts_ms = 0
+            bar_high = close
+            bar_low = close
 
+        if position.side == "LONG" and bar_low <= sp:
+            return ExitSignal(should_exit=True, reason="stop_hit")
+        if position.side == "SHORT" and bar_high >= sp:
+            return ExitSignal(should_exit=True, reason="stop_hit")
+
+    # Time stop
+    if position.entry_ts_ms is not None:
         held = _bars_held(
             entry_ts_ms=int(position.entry_ts_ms),
             now_ts_ms=int(now_ts_ms),
@@ -173,4 +276,6 @@ def evaluate_exit(
 
 
 def size_position(signal: EntrySignal, market_state: MarketState) -> float:
-    return 1.0
+    return 0.01
+
+
