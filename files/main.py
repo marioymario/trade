@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import csv
+import os
 import time
+
 import pandas as pd
 
 from files.broker.paper import PaperBroker
@@ -9,7 +12,7 @@ from files.data.market import fetch_market_data
 from files.data.storage import append_ohlcv_parquet, load_recent_ohlcv_parquet
 from files.data.features import compute_features, validate_latest_features
 from files.data.trades import append_trade_csv
-from files.data.decisions import append_decision_csv
+from files.data.decisions import append_decision_csv, decisions_csv_path
 from files.strategy.filters import determine_market_state
 from files.strategy.rules import (
     evaluate_entry,
@@ -78,6 +81,29 @@ def _fill_position_fields(decision_row: dict, position) -> None:
     )
 
 
+def _read_last_ts_ms_from_decisions_csv(path: str) -> int | None:
+    """Return the last ts_ms found in an existing decisions CSV, or None."""
+    try:
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            return None
+
+        last: int | None = None
+        with open(path, "r", newline="", encoding="utf-8") as f:
+            r = csv.DictReader(f)
+            for row in r:
+                v = row.get("ts_ms", "") if row else ""
+                try:
+                    ts_ms = int(float(v)) if v not in (None, "", "nan") else 0
+                except Exception:
+                    ts_ms = 0
+                if ts_ms > 0:
+                    last = ts_ms
+        return last
+    except Exception as e:
+        logger.warning("Failed to read last ts_ms from decisions CSV", extra={"path": path, "error": repr(e)})
+        return None
+
+
 def main() -> None:
     cfg = load_trading_config()
 
@@ -106,7 +132,15 @@ def main() -> None:
 
     expected_step_s = _timeframe_to_seconds(cfg.timeframe)
 
+    # ---- Restart-safe decision dedupe: seed last_decision_ts_ms from existing CSV ----
     last_decision_ts_ms: int | None = None
+    dpath_existing = decisions_csv_path(exchange=cfg.ccxt_exchange, symbol=cfg.symbol, timeframe=cfg.timeframe)
+    last_decision_ts_ms = _read_last_ts_ms_from_decisions_csv(dpath_existing)
+    if last_decision_ts_ms is not None:
+        logger.info(
+            "Decision dedupe initialized from existing CSV",
+            extra={"csv_path": dpath_existing, "last_decision_ts_ms": int(last_decision_ts_ms)},
+        )
 
     def _write_decision_once_per_bar(decision_row: dict) -> None:
         nonlocal last_decision_ts_ms
@@ -120,7 +154,8 @@ def main() -> None:
         if ts_ms <= 0:
             return
 
-        if last_decision_ts_ms is not None and ts_ms == last_decision_ts_ms:
+        # Stronger guard: don't write same or older bars (fixes restart duplicates).
+        if last_decision_ts_ms is not None and ts_ms <= last_decision_ts_ms:
             return
 
         dpath = append_decision_csv(
@@ -297,6 +332,31 @@ def main() -> None:
                 decision_row["trail_new_stop"] = float(new_stop) if new_stop is not None else ""
                 decision_row["trail_new_anchor"] = float(new_anchor) if new_anchor is not None else ""
 
+                # --- TRAIL DEBUG (single undeniable line when ratchet occurs) ---
+                stop_price = getattr(position, "stop_price", None)
+                old_stop = float(stop_price) if stop_price is not None else None
+
+                anchor_price = getattr(position, "trailing_anchor_price", None)
+                old_anchor = float(anchor_price) if anchor_price is not None else None
+
+                if new_stop is not None and old_stop is not None and float(new_stop) != float(old_stop):
+                    logger.info(
+                        "[TRAIL] %s %s ts_ms=%s stop %.2f->%.2f anchor %s->%s reason=%s atr=%.6f close=%.2f high=%.2f low=%.2f",
+                        cfg.symbol,
+                        position.side,
+                        now_ts_ms,
+                        float(old_stop),
+                        float(new_stop),
+                        f"{old_anchor:.2f}" if old_anchor is not None else "None",
+                        f"{float(new_anchor):.2f}" if new_anchor is not None else "None",
+                        trail_reason,
+                        float(latest_atr),
+                        float(latest_close),
+                        float(latest_high),
+                        float(latest_low),
+                    )
+                # --- END TRAIL DEBUG ---
+
                 if new_stop is not None and (
                     position.stop_price is None or float(new_stop) != float(position.stop_price)
                 ):
@@ -418,9 +478,7 @@ def main() -> None:
                         cfg.max_order_size,
                     )
 
-                    ##entry_ts = latest_row["timestamp"]
-                    ##entry_ts_ms = int(getattr(entry_ts, "value", 0) // 1_000_000)
-                    #
+                    # Model entries as next-bar to prevent same-bar stop hits
                     entry_ts_ms = now_ts_ms + expected_step_s * 1000
 
                     stop_price = compute_initial_stop(
