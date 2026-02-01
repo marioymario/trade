@@ -16,7 +16,7 @@ from files.strategy.rules import (
     evaluate_exit,
     size_position,
     compute_initial_stop,
-    compute_trailing_stop,
+    compute_trailing_stop_update,
     ATR_MULT,
 )
 from files.utils.logger import get_logger
@@ -38,11 +38,6 @@ def _timeframe_to_seconds(timeframe: str) -> int:
 
 
 def _cadence_ok(df: pd.DataFrame, expected_step_s: int) -> bool:
-    """
-    Protects you from partial exchange outages / degraded feeds.
-    Consider the feed 'cadence_ok' if the median timestamp step matches
-    the expected bar step within a small tolerance.
-    """
     if df is None or len(df) < 3:
         return False
     if "timestamp" not in df.columns:
@@ -58,6 +53,29 @@ def _cadence_ok(df: pd.DataFrame, expected_step_s: int) -> bool:
 
     med = float(diffs.median())
     return abs(med - expected_step_s) <= max(2.0, expected_step_s * 0.02)
+
+
+def _fill_position_fields(decision_row: dict, position) -> None:
+    """Mutates decision_row to include position data if available."""
+    if position is None:
+        decision_row["position_side"] = ""
+        decision_row["position_qty"] = ""
+        decision_row["position_entry_price"] = ""
+        decision_row["position_stop_price"] = ""
+        decision_row["position_trailing_anchor_price"] = ""
+        return
+
+    decision_row["position_side"] = position.side
+    decision_row["position_qty"] = float(position.qty)
+    decision_row["position_entry_price"] = float(position.entry_price)
+    decision_row["position_stop_price"] = (
+        float(position.stop_price) if position.stop_price is not None else ""
+    )
+    decision_row["position_trailing_anchor_price"] = (
+        float(position.trailing_anchor_price)
+        if getattr(position, "trailing_anchor_price", None) is not None
+        else ""
+    )
 
 
 def main() -> None:
@@ -88,7 +106,6 @@ def main() -> None:
 
     expected_step_s = _timeframe_to_seconds(cfg.timeframe)
 
-    # Decision de-dupe: only write once per bar timestamp
     last_decision_ts_ms: int | None = None
 
     def _write_decision_once_per_bar(decision_row: dict) -> None:
@@ -118,7 +135,6 @@ def main() -> None:
     while True:
         loop_start = time.time()
         try:
-            # 1) Fetch from source (best effort)
             fetched = fetch_market_data(
                 symbol=cfg.symbol,
                 timeframe=cfg.timeframe,
@@ -127,7 +143,6 @@ def main() -> None:
                 ccxt_exchange=cfg.ccxt_exchange,
             )
 
-            # 2) Persist what we got
             append_ohlcv_parquet(
                 df=fetched,
                 exchange=cfg.ccxt_exchange,
@@ -135,7 +150,6 @@ def main() -> None:
                 timeframe=cfg.timeframe,
             )
 
-            # 3) Load stable “truth” for strategy from local storage
             market_data = load_recent_ohlcv_parquet(
                 exchange=cfg.ccxt_exchange,
                 symbol=cfg.symbol,
@@ -144,7 +158,6 @@ def main() -> None:
             )
             rows = len(market_data)
 
-            # 4) Hard gates before computing features
             has_enough_bars = rows >= cfg.min_bars
             cadence_ok = _cadence_ok(market_data, expected_step_s)
 
@@ -169,10 +182,8 @@ def main() -> None:
                 time.sleep(cfg.loop_sleep_seconds)
                 continue
 
-            # 5) Compute features
             feats = compute_features(market_data)
 
-            # 5b) NaN guard: never trade if the last row has NaNs
             try:
                 validate_latest_features(feats)
             except Exception as e:
@@ -183,7 +194,6 @@ def main() -> None:
                 time.sleep(cfg.loop_sleep_seconds)
                 continue
 
-            # 6) Market state
             market_state = determine_market_state(
                 feats,
                 timeframe=cfg.timeframe,
@@ -205,6 +215,8 @@ def main() -> None:
 
             latest_row = feats.iloc[-1]
             latest_close = float(latest_row["close"])
+            latest_high = float(latest_row.get("high", latest_close))
+            latest_low = float(latest_row.get("low", latest_close))
             latest_atr = float(latest_row["atr"])
 
             ts = latest_row.get("timestamp", None)
@@ -218,21 +230,26 @@ def main() -> None:
                 atr_mult=float(ATR_MULT),
             )
 
-            # Build decision row (one per bar timestamp)
             decision_row = {
                 "ts_ms": now_ts_ms,
                 "timestamp": now_iso,
+                "bar_high": latest_high,
+                "bar_low": latest_low,
                 "tradable": bool(market_state.tradable),
                 "trend": market_state.trend,
                 "volatility": market_state.volatility,
                 "market_reason": market_state.reason,
                 "cooldown_remaining_bars": "",
-                "position_side": position.side if position is not None else "",
-                "position_qty": position.qty if position is not None else "",
-                "position_entry_price": position.entry_price if position is not None else "",
-                "position_stop_price": position.stop_price if position is not None else "",
+                "position_side": "",
+                "position_qty": "",
+                "position_entry_price": "",
+                "position_stop_price": "",
+                "position_trailing_anchor_price": "",
                 "unrealized_pnl_usd": "",
                 "unrealized_pnl_pct": "",
+                "trail_reason": "",
+                "trail_new_stop": "",
+                "trail_new_anchor": "",
                 "entry_should_enter": "",
                 "entry_side": "",
                 "entry_confidence": "",
@@ -241,11 +258,14 @@ def main() -> None:
                 "exit_reason": "",
             }
 
-            # 7) EXIT (evaluate first; only if in a position)
+            _fill_position_fields(decision_row, position)
+
+            # ------------------------
+            # EXIT / MANAGE POSITION
+            # ------------------------
             if position is not None:
                 u_usd, u_pct = broker.get_unrealized_pnl(
-                    symbol=cfg.symbol,
-                    last_price=latest_close,
+                    symbol=cfg.symbol, last_price=latest_close
                 )
                 decision_row["unrealized_pnl_usd"] = float(u_usd)
                 decision_row["unrealized_pnl_pct"] = float(u_pct)
@@ -258,31 +278,44 @@ def main() -> None:
                         "qty": position.qty,
                         "entry_price": position.entry_price,
                         "stop_price": position.stop_price,
+                        "trailing_anchor_price": getattr(position, "trailing_anchor_price", None),
                         "last_close": latest_close,
                         "unrealized_pnl_usd": float(u_usd),
                         "unrealized_pnl_pct": float(u_pct),
                     },
                 )
 
-                # Trailing stop update
-                new_stop = compute_trailing_stop(
+                new_stop, new_anchor, trail_reason = compute_trailing_stop_update(
                     position=position,
                     latest_close=latest_close,
+                    latest_high=latest_high,
+                    latest_low=latest_low,
                     atr=latest_atr,
                 )
+
+                decision_row["trail_reason"] = trail_reason
+                decision_row["trail_new_stop"] = float(new_stop) if new_stop is not None else ""
+                decision_row["trail_new_anchor"] = float(new_anchor) if new_anchor is not None else ""
+
                 if new_stop is not None and (
                     position.stop_price is None or float(new_stop) != float(position.stop_price)
                 ):
-                    updated = broker.update_stop(symbol=cfg.symbol, new_stop_price=float(new_stop))
+                    updated = broker.update_stop(
+                        symbol=cfg.symbol,
+                        new_stop_price=float(new_stop),
+                        new_trailing_anchor_price=float(new_anchor) if new_anchor is not None else None,
+                    )
                     if updated is not None:
                         position = updated
-                        decision_row["position_stop_price"] = position.stop_price
+                        _fill_position_fields(decision_row, position)
                         logger.info(
                             "Stop trailed",
                             extra={
                                 "symbol": cfg.symbol,
                                 "side": position.side,
                                 "new_stop_price": position.stop_price,
+                                "trailing_anchor_price": position.trailing_anchor_price,
+                                "trail_reason": trail_reason,
                                 "last_close": latest_close,
                             },
                         )
@@ -293,6 +326,7 @@ def main() -> None:
                     market_state=market_state,
                     expected_step_s=int(expected_step_s),
                 )
+
                 decision_row["exit_should_exit"] = bool(exit_sig.should_exit)
                 decision_row["exit_reason"] = exit_sig.reason or ""
 
@@ -309,18 +343,21 @@ def main() -> None:
                 )
 
                 if exit_sig.should_exit:
-                    # close the trade
+                    exit_reason = exit_sig.reason or "exit"
+
+                    # Fill at stop price if stop was hit; otherwise use close.
+                    exit_price = latest_close
+                    if exit_reason == "stop_hit" and position.stop_price is not None:
+                        exit_price = float(position.stop_price)
+
                     trade = broker.realize_and_close(
                         symbol=cfg.symbol,
-                        exit_price=latest_close,
-                        reason=exit_sig.reason or "exit",
+                        exit_price=float(exit_price),
+                        reason=exit_reason,
                         exit_ts_ms=now_ts_ms if now_ts_ms > 0 else None,
                     )
 
-                    logger.info(
-                        "Exit executed",
-                        extra=trade,
-                    )
+                    logger.info("Exit executed", extra=trade)
 
                     csv_path = append_trade_csv(
                         trade=trade,
@@ -331,14 +368,14 @@ def main() -> None:
                     )
                     logger.info("Trade recorded", extra={"csv_path": csv_path})
 
-                    # record decision (once per bar)
                     _write_decision_once_per_bar(decision_row)
 
-                    # After closing, treat as flat for this loop (no immediate re-entry).
                     time.sleep(cfg.loop_sleep_seconds)
                     continue
 
-            # 8) ENTRY (only if flat)
+            # ------------------------
+            # ENTRY
+            # ------------------------
             if position is None:
                 remaining = broker.cooldown_remaining_bars(
                     symbol=cfg.symbol,
@@ -351,21 +388,14 @@ def main() -> None:
                 if remaining > 0:
                     logger.info(
                         "Entry blocked by cooldown",
-                        extra={
-                            "symbol": cfg.symbol,
-                            "cooldown_bars": int(getattr(cfg, "cooldown_bars", 0)),
-                            "remaining_bars": int(remaining),
-                        },
+                        extra={"symbol": cfg.symbol, "remaining_bars": int(remaining)},
                     )
                     _write_decision_once_per_bar(decision_row)
-
                     elapsed = time.time() - loop_start
-                    sleep_for = max(cfg.loop_sleep_seconds - elapsed, 0.0)
-                    time.sleep(sleep_for)
+                    time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
                     continue
 
                 entry_sig = evaluate_entry(features=feats, market_state=market_state)
-
                 decision_row["entry_should_enter"] = bool(entry_sig.should_enter)
                 decision_row["entry_side"] = entry_sig.side
                 decision_row["entry_confidence"] = float(entry_sig.confidence)
@@ -379,18 +409,19 @@ def main() -> None:
                         "side": entry_sig.side,
                         "confidence": entry_sig.confidence,
                         "entry_reason": entry_sig.reason,
-                        "market_trend": market_state.trend,
-                        "market_volatility": market_state.volatility,
-                        "market_reason": market_state.reason,
                     },
                 )
 
                 if entry_sig.should_enter:
-                    size = size_position(signal=entry_sig, market_state=market_state)
-                    size = min(size, cfg.max_order_size)
+                    size = min(
+                        size_position(signal=entry_sig, market_state=market_state),
+                        cfg.max_order_size,
+                    )
 
-                    entry_ts = latest_row["timestamp"]
-                    entry_ts_ms = int(getattr(entry_ts, "value", 0) // 1_000_000)
+                    ##entry_ts = latest_row["timestamp"]
+                    ##entry_ts_ms = int(getattr(entry_ts, "value", 0) // 1_000_000)
+                    #
+                    entry_ts_ms = now_ts_ms + expected_step_s * 1000
 
                     stop_price = compute_initial_stop(
                         side=entry_sig.side,
@@ -405,7 +436,19 @@ def main() -> None:
                         entry_price=latest_close,
                         entry_ts_ms=entry_ts_ms,
                         stop_price=stop_price,
+                        trailing_anchor_price=(
+                            latest_high if entry_sig.side == "LONG" else latest_low
+                        ),
                     )
+
+                    # Refresh position and write it into decision row
+                    position = broker.get_tracked_position(
+                        symbol=cfg.symbol,
+                        latest_close=latest_close,
+                        latest_atr=latest_atr,
+                        atr_mult=float(ATR_MULT),
+                    )
+                    _fill_position_fields(decision_row, position)
 
                     logger.info(
                         "Entry executed",
@@ -415,19 +458,13 @@ def main() -> None:
                             "size": size,
                             "entry_price": latest_close,
                             "stop_price": stop_price,
-                            "confidence": entry_sig.confidence,
-                            "entry_reason": entry_sig.reason,
-                            "market_reason": market_state.reason,
                         },
                     )
 
-            # record decision (once per bar)
             _write_decision_once_per_bar(decision_row)
 
-            # 9) Keep loop cadence stable-ish (sleep minus time spent)
             elapsed = time.time() - loop_start
-            sleep_for = max(cfg.loop_sleep_seconds - elapsed, 0.0)
-            time.sleep(sleep_for)
+            time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
 
         except KeyboardInterrupt:
             logger.info("Stopping (KeyboardInterrupt)")

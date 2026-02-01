@@ -63,7 +63,13 @@ class PaperBroker:
     ) -> Optional[Position]:
         return self._tracked.get(symbol)
 
-    def update_stop(self, *, symbol: str, new_stop_price: float) -> Optional[Position]:
+    def update_stop(
+        self,
+        *,
+        symbol: str,
+        new_stop_price: float,
+        new_trailing_anchor_price: Optional[float] = None,
+    ) -> Optional[Position]:
         pos = self._tracked.get(symbol)
         if pos is None:
             return None
@@ -76,6 +82,16 @@ class PaperBroker:
         if not (ns == ns):
             return pos
 
+        # Preserve anchor unless explicitly updated
+        anchor = pos.trailing_anchor_price
+        if new_trailing_anchor_price is not None:
+            try:
+                a = float(new_trailing_anchor_price)
+                if a == a:
+                    anchor = a
+            except Exception:
+                pass
+
         updated = Position(
             symbol=pos.symbol,
             qty=float(pos.qty),
@@ -83,6 +99,7 @@ class PaperBroker:
             entry_price=float(pos.entry_price),
             entry_ts_ms=int(pos.entry_ts_ms) if pos.entry_ts_ms is not None else None,
             stop_price=float(ns),
+            trailing_anchor_price=anchor,
         )
         self._tracked[symbol] = updated
         return updated
@@ -120,12 +137,15 @@ class PaperBroker:
         expected_step_s: int,
         cooldown_bars: int,
     ) -> bool:
-        return self.cooldown_remaining_bars(
-            symbol=symbol,
-            now_ts_ms=now_ts_ms,
-            expected_step_s=expected_step_s,
-            cooldown_bars=cooldown_bars,
-        ) == 0
+        return (
+            self.cooldown_remaining_bars(
+                symbol=symbol,
+                now_ts_ms=now_ts_ms,
+                expected_step_s=expected_step_s,
+                cooldown_bars=cooldown_bars,
+            )
+            == 0
+        )
 
     def open_position(
         self,
@@ -136,7 +156,18 @@ class PaperBroker:
         entry_price: float,
         entry_ts_ms: int,
         stop_price: Optional[float] = None,
+        trailing_anchor_price: Optional[float] = None,
+        **kwargs,
     ) -> None:
+        """
+        Open a new paper position.
+
+        - trailing_anchor_price is optional trailing stop state:
+            LONG: highest favorable price since entry (bar high)
+            SHORT: lowest favorable price since entry (bar low)
+
+        - **kwargs accepted so call sites can evolve without crashing.
+        """
         if size <= 0:
             raise ValueError(f"size must be > 0, got {size}")
 
@@ -154,6 +185,7 @@ class PaperBroker:
             entry_price=float(entry_price),
             entry_ts_ms=int(entry_ts_ms),
             stop_price=stop_price,
+            trailing_anchor_price=trailing_anchor_price,
         )
         self._tracked[symbol] = pos
 
@@ -162,10 +194,13 @@ class PaperBroker:
             extra={
                 "symbol": symbol,
                 "side": side,
-                "qty": size,
-                "entry_price": entry_price,
-                "stop_price": stop_price,
-                "entry_ts_ms": entry_ts_ms,
+                "qty": float(size),
+                "entry_price": float(entry_price),
+                "stop_price": float(stop_price) if stop_price is not None else None,
+                "trailing_anchor_price": float(trailing_anchor_price)
+                if trailing_anchor_price is not None
+                else None,
+                "entry_ts_ms": int(entry_ts_ms),
             },
         )
 
@@ -181,11 +216,11 @@ class PaperBroker:
             return 0.0, 0.0
 
         if pos.side == "LONG":
-            pnl_usd = (last_price - entry) * qty
-            pnl_pct = (last_price - entry) / entry
+            pnl_usd = (float(last_price) - entry) * qty
+            pnl_pct = (float(last_price) - entry) / entry
         else:  # SHORT
-            pnl_usd = (entry - last_price) * qty
-            pnl_pct = (entry - last_price) / entry
+            pnl_usd = (entry - float(last_price)) * qty
+            pnl_pct = (entry - float(last_price)) / entry
 
         return float(pnl_usd), float(pnl_pct)
 
