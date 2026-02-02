@@ -68,4 +68,5 @@ report-decisions-gpu:
 	docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm trade python -m files.utils.decision_report
 
 
-
+backtest:
+	$(COMPOSE) run --rm trade python -m files.backtest --runid $$RUNID
