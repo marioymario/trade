@@ -68,5 +68,13 @@ report-decisions-gpu:
 	docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm trade python -m files.utils.decision_report
 
 
+# Usage:
+#   RUNID=cmp_20260201 make backtest
+#   RUNID=live_capture START_TS_MS=... END_TS_MS=... make backtest
+#
+# START_TS_MS / END_TS_MS are optional.
 backtest:
-	$(COMPOSE) run --rm trade python -m files.backtest --runid $$RUNID
+	$(COMPOSE) run --rm trade python -m files.backtest \
+	  --runid $${RUNID} \
+	  $$( [ -n "$$START_TS_MS" ] && printf -- " --start-ts-ms %s" "$$START_TS_MS" ) \
+	  $$( [ -n "$$END_TS_MS" ] && printf -- " --end-ts-ms %s" "$$END_TS_MS" )

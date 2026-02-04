@@ -1,4 +1,3 @@
-# files/backtest/engine.py
 from __future__ import annotations
 
 import csv
@@ -158,8 +157,6 @@ def run_backtest(
 
     expected_step_s = _timeframe_to_seconds(cfg.timeframe)
 
-    # Output isolation WITHOUT changing any writers:
-    # decisions/trades writers use exchange as namespace => make exchange include runid.
     bt_exchange = f"{cfg.ccxt_exchange}_bt_{runid}"
 
     logger.info(
@@ -190,9 +187,8 @@ def run_backtest(
             f"No bars found under data/raw/{cfg.ccxt_exchange}/{cfg.symbol}/{cfg.timeframe}"
         )
 
-    # Optional time filters (ms)
     if start_ts_ms is not None or end_ts_ms is not None:
-        ts_ms = (all_bars["timestamp"].view("int64") // 1_000_000).astype("int64")
+        ts_ms = (all_bars["timestamp"].astype("int64") // 1_000_000).astype("int64")
         mask = pd.Series(True, index=all_bars.index)
         if start_ts_ms is not None:
             mask &= ts_ms >= int(start_ts_ms)
@@ -203,7 +199,6 @@ def run_backtest(
     if len(all_bars) == 0:
         raise RuntimeError("No bars left after applying start/end filters.")
 
-    # ---- Restart-safe decision dedupe: seed last_decision_ts_ms from existing CSV ----
     last_decision_ts_ms: int | None = None
     dpath_existing = decisions_csv_path(
         exchange=bt_exchange, symbol=cfg.symbol, timeframe=cfg.timeframe
@@ -227,7 +222,6 @@ def run_backtest(
         if ts_ms <= 0:
             return None
 
-        # Stronger guard: don't write same or older bars (fixes restart duplicates).
         if last_decision_ts_ms is not None and ts_ms <= last_decision_ts_ms:
             return None
 
@@ -240,7 +234,6 @@ def run_backtest(
         last_decision_ts_ms = ts_ms
         return dpath
 
-    # Mirror live: features window uses tail_n=max(min_bars, 200)
     tail_n = max(cfg.min_bars, 200)
 
     bars_processed = 0
@@ -248,12 +241,9 @@ def run_backtest(
     last_trades_path: str = ""
 
     for i in range(len(all_bars)):
-        # mimic live: compute features on recent tail
         start_i = max(0, i - tail_n + 1)
         market_data = all_bars.iloc[start_i : i + 1].reset_index(drop=True)
 
-        # Live loop skips until enough bars and cadence ok (determine_market_state handles these too,
-        # but main.py also explicitly avoids doing expensive work early; we follow the same gating.)
         if len(market_data) < cfg.min_bars:
             continue
 
@@ -287,6 +277,16 @@ def run_backtest(
             atr_mult=float(ATR_MULT),
         )
 
+        # ---- Pending-entry guard (must match LIVE) ----
+        pending_entry = False
+        if (
+            position is not None
+            and position.entry_ts_ms is not None
+            and now_ts_ms > 0
+            and int(now_ts_ms) < int(position.entry_ts_ms)
+        ):
+            pending_entry = True
+
         decision_row = {
             "ts_ms": now_ts_ms,
             "timestamp": now_iso,
@@ -316,6 +316,13 @@ def run_backtest(
         }
 
         _fill_position_fields(decision_row, position)
+
+        if pending_entry:
+            p = _write_decision_once_per_bar(decision_row)
+            if p:
+                last_decisions_path = p
+            bars_processed += 1
+            continue
 
         # ------------------------
         # EXIT / MANAGE POSITION
@@ -362,7 +369,6 @@ def run_backtest(
             if exit_sig.should_exit:
                 exit_reason = exit_sig.reason or "exit"
 
-                # Fill at stop price if stop was hit; otherwise use close.
                 exit_price = latest_close
                 if exit_reason == "stop_hit" and position.stop_price is not None:
                     exit_price = float(position.stop_price)
@@ -414,8 +420,6 @@ def run_backtest(
                         cfg.max_order_size,
                     )
 
-                    # Deterministic next-bar entry timestamp:
-                    # Use actual next bar ts if it exists; else fallback to +expected_step.
                     if i + 1 < len(all_bars):
                         nxt = all_bars.iloc[i + 1]["timestamp"]
                         next_ts_ms = int(getattr(nxt, "value", 0) // 1_000_000)
@@ -455,7 +459,6 @@ def run_backtest(
 
         bars_processed += 1
 
-    # Determine expected output paths (even if empty)
     decisions_out = decisions_csv_path(exchange=bt_exchange, symbol=cfg.symbol, timeframe=cfg.timeframe)
     trades_out = str(
         Path("data")
@@ -488,4 +491,3 @@ def run_backtest(
         decisions_csv=decisions_out,
         trades_csv=trades_out,
     )
-

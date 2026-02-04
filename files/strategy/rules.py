@@ -1,4 +1,3 @@
-## trade/files/strategy/rules.py
 from __future__ import annotations
 
 from files.core.types import EntrySignal, ExitSignal, MarketState, Position
@@ -33,20 +32,7 @@ def compute_trailing_stop(
     atr: float,
     atr_mult: float = TRAIL_ATR_MULT,
 ) -> float | None:
-    """Compute a tightened (never-loosen) trailing stop.
-
-    LONG:
-      candidate = latest_close - atr_mult * atr
-      new_stop  = max(prev_stop, candidate)
-
-    SHORT:
-      candidate = latest_close + atr_mult * atr
-      new_stop  = min(prev_stop, candidate)
-
-    Returns:
-      - new_stop (float) if computable
-      - None if not computable (bad atr/close)
-    """
+    """Compute a tightened (never-loosen) trailing stop."""
     new_stop, _new_anchor, _reason = compute_trailing_stop_update(
         position=position,
         latest_close=latest_close,
@@ -67,28 +53,7 @@ def compute_trailing_stop_update(
     atr: float,
     atr_mult: float = TRAIL_ATR_MULT,
 ) -> tuple[float | None, float | None, str]:
-    """Compute trailing stop + updated anchor + reason.
-
-    v2 behavior:
-    - ATR-based
-    - Ratchet-only (stop only tightens)
-    - Side-aware
-    - Anchor-based:
-        LONG anchor = max(prev_anchor, latest_high or close)
-        SHORT anchor = min(prev_anchor, latest_low or close)
-
-    Candidate:
-        LONG: anchor - atr_mult * atr
-        SHORT: anchor + atr_mult * atr
-
-    Ratchet:
-        LONG: new_stop = max(prev_stop, candidate)
-        SHORT: new_stop = min(prev_stop, candidate)
-
-    Returns:
-      (new_stop_price, new_anchor_price, reason)
-    """
-    # Parse inputs
+    """Compute trailing stop + updated anchor + reason."""
     try:
         close = float(latest_close)
         a = float(atr)
@@ -103,7 +68,6 @@ def compute_trailing_stop_update(
     if not (m == m) or m <= 0.0:
         return None, getattr(position, "trailing_anchor_price", None), "atr_mult_nonpositive"
 
-    # Fallbacks for anchor source
     hi = close
     lo = close
     if latest_high is not None:
@@ -150,7 +114,6 @@ def compute_trailing_stop_update(
 
 
 def evaluate_entry(features, market_state: MarketState) -> EntrySignal:
-    # Safety gate: never enter if not tradable
     if not market_state.tradable:
         return EntrySignal(
             should_enter=False,
@@ -161,7 +124,7 @@ def evaluate_entry(features, market_state: MarketState) -> EntrySignal:
 
     confidence = float(_model.predict_confidence(features))
 
-    if confidence != confidence:  # NaN check
+    if confidence != confidence:
         return EntrySignal(
             should_enter=False,
             side="LONG",
@@ -169,7 +132,6 @@ def evaluate_entry(features, market_state: MarketState) -> EntrySignal:
             reason="confidence_nan",
         )
 
-    # DEV override (optional): FORCE_SIDE=LONG or FORCE_SIDE=SHORT
     import os
     force_side = os.getenv("FORCE_SIDE", "").strip().upper()
     if force_side in ("LONG", "SHORT"):
@@ -233,10 +195,9 @@ def evaluate_exit(
     except Exception:
         return ExitSignal(should_exit=False, reason="missing_close")
 
-    # Timestamp (ms) for guardrails + time stop
     try:
         ts = latest_features_row["timestamp"]
-        now_ts_ms = int(getattr(ts, "value", 0) // 1_000_000)  # ns -> ms
+        now_ts_ms = int(getattr(ts, "value", 0) // 1_000_000)
     except Exception:
         now_ts_ms = 0
 
@@ -246,20 +207,13 @@ def evaluate_exit(
         and int(position.entry_ts_ms) == int(now_ts_ms)
     )
 
-    # Stop (intrabar-aware), but skip stop checks on entry bar to avoid candle artifacts
+    # STOP (close-only)
+    # This makes LIVE and BT comparable when LIVE may be evaluating an in-progress bar.
     if (not same_bar_as_entry) and position.stop_price is not None and position.stop_price == position.stop_price:
         sp = float(position.stop_price)
-
-        try:
-            bar_high = float(latest_features_row.get("high", close))
-            bar_low = float(latest_features_row.get("low", close))
-        except Exception:
-            bar_high = close
-            bar_low = close
-
-        if position.side == "LONG" and bar_low <= sp:
+        if position.side == "LONG" and close <= sp:
             return ExitSignal(should_exit=True, reason="stop_hit")
-        if position.side == "SHORT" and bar_high >= sp:
+        if position.side == "SHORT" and close >= sp:
             return ExitSignal(should_exit=True, reason="stop_hit")
 
     # Time stop
@@ -277,5 +231,3 @@ def evaluate_exit(
 
 def size_position(signal: EntrySignal, market_state: MarketState) -> float:
     return 0.01
-
-
