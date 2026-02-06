@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import os
 import time
+from collections import deque
 
 import pandas as pd
 
@@ -107,6 +108,36 @@ def _read_last_ts_ms_from_decisions_csv(path: str) -> int | None:
         return None
 
 
+def _read_tail_market_reasons(path: str, *, tail_n: int = 50, window_k: int = 6) -> list[str]:
+    """
+    Read the tail of decisions.csv and extract the last window_k market_reason values.
+    Best-effort: if file missing, return [].
+    """
+    try:
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            return []
+
+        reasons: list[str] = []
+        with open(path, "r", newline="", encoding="utf-8") as f:
+            r = csv.DictReader(f)
+            for row in r:
+                mr = (row.get("market_reason") or "").strip()
+                if mr:
+                    reasons.append(mr)
+
+        if not reasons:
+            return []
+        # Take last tail_n then last window_k
+        reasons = reasons[-tail_n:]
+        return reasons[-window_k:]
+    except Exception as e:
+        logger.warning(
+            "Failed to read tail market_reasons from decisions CSV",
+            extra={"path": path, "error": repr(e)},
+        )
+        return []
+
+
 def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     """Ensure timestamp is datetime UTC and rows are sorted/deduped."""
     if df is None or len(df) == 0:
@@ -128,6 +159,62 @@ def _drop_in_progress_last_bar_if_safe(df: pd.DataFrame, *, min_bars: int) -> pd
     if len(df) >= (min_bars + 1):
         return df.iloc[:-1].reset_index(drop=True)
     return df
+
+
+def _blank_decision_row(*, ts_ms: int, now_iso: str, bar_high: float, bar_low: float) -> dict:
+    """
+    Create a full-shape decision row (so CSV stays consistent) even when we skip trading.
+    """
+    return {
+        "ts_ms": int(ts_ms) if ts_ms else 0,
+        "timestamp": now_iso or "",
+        "bar_high": float(bar_high),
+        "bar_low": float(bar_low),
+        "tradable": "",
+        "trend": "",
+        "volatility": "",
+        "market_reason": "",
+        "cooldown_remaining_bars": "",
+        "position_side": "",
+        "position_qty": "",
+        "position_entry_price": "",
+        "position_stop_price": "",
+        "position_trailing_anchor_price": "",
+        "unrealized_pnl_usd": "",
+        "unrealized_pnl_pct": "",
+        "trail_reason": "",
+        "trail_new_stop": "",
+        "trail_new_anchor": "",
+        "entry_should_enter": "",
+        "entry_side": "",
+        "entry_confidence": "",
+        "entry_reason": "",
+        "exit_should_exit": "",
+        "exit_reason": "",
+    }
+
+
+def _is_degraded(*, recent_reasons: deque[str], internal_cadence_ok: bool) -> tuple[bool, str]:
+    """
+    v0.3 watchdog contract:
+    degraded_mode=True if any of:
+      - cadence_failed occurs >=2 times in last 6 bars
+      - features_invalid occurs >=2 times in last 6 bars
+      - internal cadence anomaly detected in merged bars (internal_cadence_ok=False)
+
+    Returns (degraded, why).
+    """
+    last = list(recent_reasons)[-6:]
+    cadence_failed_n = sum(1 for r in last if "cadence_failed" in r)
+    features_invalid_n = sum(1 for r in last if "features_invalid" in r)
+
+    if not internal_cadence_ok:
+        return True, "internal_cadence_anomaly"
+    if cadence_failed_n >= 2:
+        return True, f"cadence_failed_x{cadence_failed_n}_in_last6"
+    if features_invalid_n >= 2:
+        return True, f"features_invalid_x{features_invalid_n}_in_last6"
+    return False, ""
 
 
 def main() -> None:
@@ -157,6 +244,7 @@ def main() -> None:
     )
 
     expected_step_s = _timeframe_to_seconds(cfg.timeframe)
+    step_ms = int(expected_step_s * 1000)
 
     # ---- Restart-safe decision dedupe: seed last_decision_ts_ms from existing CSV ----
     last_decision_ts_ms: int | None = None
@@ -169,6 +257,15 @@ def main() -> None:
             "Decision dedupe initialized from existing CSV",
             extra={"csv_path": dpath_existing, "last_decision_ts_ms": int(last_decision_ts_ms)},
         )
+
+    # ---- Watchdog state (v0.3): recent market_reason window ----
+    recent_reasons: deque[str] = deque(maxlen=12)
+    for r in _read_tail_market_reasons(dpath_existing, tail_n=80, window_k=6):
+        recent_reasons.append(r)
+
+    degraded_mode = False
+    degraded_why = ""
+    degraded_since_ts_ms: int | None = None
 
     def _write_decision_once_per_bar(decision_row: dict) -> None:
         nonlocal last_decision_ts_ms
@@ -255,7 +352,6 @@ def main() -> None:
             rows_fetched = len(fetched)
             rows = len(combined)
 
-            # One compact snapshot every loop (useful when debugging)
             logger.info(
                 "Bars snapshot",
                 extra={
@@ -272,21 +368,40 @@ def main() -> None:
             has_enough_bars = rows >= cfg.min_bars
             cadence_ok = _cadence_ok(combined, expected_step_s)
 
+            # Bar identity for skip-recording and watchdog markers
+            if rows > 0 and "timestamp" in combined.columns:
+                tail_ts = pd.to_datetime(combined.iloc[-1]["timestamp"], utc=True, errors="coerce")
+                now_ts_ms = int(getattr(tail_ts, "value", 0) // 1_000_000) if not pd.isna(tail_ts) else 0
+                now_iso = tail_ts.isoformat() if hasattr(tail_ts, "isoformat") else ""
+                bar_high = float(combined.iloc[-1].get("high", combined.iloc[-1].get("close", 0.0)))
+                bar_low = float(combined.iloc[-1].get("low", combined.iloc[-1].get("close", 0.0)))
+            else:
+                now_ts_ms = 0
+                now_iso = ""
+                bar_high = 0.0
+                bar_low = 0.0
+
+            # Always have current position available for recording
+            position = broker.get_tracked_position(
+                symbol=cfg.symbol,
+                latest_close=float(combined.iloc[-1]["close"]) if rows > 0 and "close" in combined.columns else 0.0,
+                latest_atr=0.0,
+                atr_mult=float(ATR_MULT),
+            )
+
             if not has_enough_bars:
-                logger.warning(
-                    "Not enough bars in local store yet; skipping loop",
-                    extra={
-                        "rows_combined": int(rows),
-                        "rows_store": int(rows_store),
-                        "rows_fetched": int(rows_fetched),
-                        "min_bars": int(cfg.min_bars),
-                        "symbol": cfg.symbol,
-                    },
-                )
+                mr = "not_enough_bars"
+                drow = _blank_decision_row(ts_ms=now_ts_ms, now_iso=now_iso, bar_high=bar_high, bar_low=bar_low)
+                drow["market_reason"] = mr
+                _fill_position_fields(drow, position)
+                _write_decision_once_per_bar(drow)
+                recent_reasons.append(mr)
+
                 time.sleep(cfg.loop_sleep_seconds)
                 continue
 
             if not cadence_ok:
+                mr = "cadence_failed"
                 logger.warning(
                     "Cadence check failed; skipping loop (possible partial outage / sparse feed)",
                     extra={
@@ -296,8 +411,31 @@ def main() -> None:
                         "rows_combined": int(rows),
                     },
                 )
+                drow = _blank_decision_row(ts_ms=now_ts_ms, now_iso=now_iso, bar_high=bar_high, bar_low=bar_low)
+                drow["market_reason"] = mr
+                _fill_position_fields(drow, position)
+                _write_decision_once_per_bar(drow)
+                recent_reasons.append(mr)
+
                 time.sleep(cfg.loop_sleep_seconds)
                 continue
+
+            # ---- v0.3 watchdog: evaluate degraded_mode BEFORE features/trading ----
+            internal_cadence_ok = cadence_ok  # already True here, but kept for contract clarity
+            new_degraded, why = _is_degraded(recent_reasons=recent_reasons, internal_cadence_ok=internal_cadence_ok)
+            if new_degraded != degraded_mode or why != degraded_why:
+                degraded_mode = new_degraded
+                degraded_why = why
+                degraded_since_ts_ms = now_ts_ms if degraded_mode else None
+                logger.warning(
+                    "WATCHDOG: DEGRADED MODE change",
+                    extra={
+                        "degraded_mode": bool(degraded_mode),
+                        "why": degraded_why,
+                        "since_ts_ms": degraded_since_ts_ms or "",
+                        "recent_reasons": list(recent_reasons)[-6:],
+                    },
+                )
 
             # ------------------------
             # FEATURES + MARKET STATE
@@ -307,10 +445,35 @@ def main() -> None:
             try:
                 validate_latest_features(feats)
             except Exception as e:
+                mr = "features_invalid"
                 logger.warning(
                     "Latest features invalid; skipping loop",
                     extra={"symbol": cfg.symbol, "error": repr(e)},
                 )
+
+                # record a decision at the features tail timestamp if available
+                try:
+                    latest_row = feats.iloc[-1]
+                    ts = latest_row.get("timestamp", None)
+                    ft_ts_ms = int(getattr(ts, "value", 0) // 1_000_000) if ts is not None else now_ts_ms
+                    ft_iso = ts.isoformat() if hasattr(ts, "isoformat") else now_iso
+                    close = float(latest_row.get("close", 0.0))
+                    hi = float(latest_row.get("high", close))
+                    lo = float(latest_row.get("low", close))
+                except Exception:
+                    ft_ts_ms = now_ts_ms
+                    ft_iso = now_iso
+                    hi = bar_high
+                    lo = bar_low
+
+                drow = _blank_decision_row(ts_ms=ft_ts_ms, now_iso=ft_iso, bar_high=hi, bar_low=lo)
+                drow["market_reason"] = mr
+                if degraded_mode:
+                    drow["market_reason"] = f"DEGRADED({degraded_why})::{mr}"
+                _fill_position_fields(drow, position)
+                _write_decision_once_per_bar(drow)
+                recent_reasons.append(mr)
+
                 time.sleep(cfg.loop_sleep_seconds)
                 continue
 
@@ -365,6 +528,9 @@ def main() -> None:
                 "exit_reason": "",
             }
 
+            if degraded_mode:
+                decision_row["market_reason"] = f"DEGRADED({degraded_why})::{decision_row['market_reason']}"
+
             _fill_position_fields(decision_row, position)
 
             # ------------------------
@@ -375,29 +541,33 @@ def main() -> None:
                 decision_row["unrealized_pnl_usd"] = float(u_usd)
                 decision_row["unrealized_pnl_pct"] = float(u_pct)
 
-                new_stop, new_anchor, trail_reason = compute_trailing_stop_update(
-                    position=position,
-                    latest_close=latest_close,
-                    latest_high=latest_high,
-                    latest_low=latest_low,
-                    atr=latest_atr,
-                )
-
-                decision_row["trail_reason"] = trail_reason
-                decision_row["trail_new_stop"] = float(new_stop) if new_stop is not None else ""
-                decision_row["trail_new_anchor"] = float(new_anchor) if new_anchor is not None else ""
-
-                if new_stop is not None and (
-                    position.stop_price is None or float(new_stop) != float(position.stop_price)
-                ):
-                    updated = broker.update_stop(
-                        symbol=cfg.symbol,
-                        new_stop_price=float(new_stop),
-                        new_trailing_anchor_price=float(new_anchor) if new_anchor is not None else None,
+                # v0.3 watchdog behavior: optionally freeze trailing stop updates when degraded.
+                if not degraded_mode:
+                    new_stop, new_anchor, trail_reason = compute_trailing_stop_update(
+                        position=position,
+                        latest_close=latest_close,
+                        latest_high=latest_high,
+                        latest_low=latest_low,
+                        atr=latest_atr,
                     )
-                    if updated is not None:
-                        position = updated
-                        _fill_position_fields(decision_row, position)
+
+                    decision_row["trail_reason"] = trail_reason
+                    decision_row["trail_new_stop"] = float(new_stop) if new_stop is not None else ""
+                    decision_row["trail_new_anchor"] = float(new_anchor) if new_anchor is not None else ""
+
+                    if new_stop is not None and (
+                        position.stop_price is None or float(new_stop) != float(position.stop_price)
+                    ):
+                        updated = broker.update_stop(
+                            symbol=cfg.symbol,
+                            new_stop_price=float(new_stop),
+                            new_trailing_anchor_price=float(new_anchor) if new_anchor is not None else None,
+                        )
+                        if updated is not None:
+                            position = updated
+                            _fill_position_fields(decision_row, position)
+                else:
+                    decision_row["trail_reason"] = "degraded_freeze_trailing"
 
                 exit_sig = evaluate_exit(
                     position=position,
@@ -455,6 +625,15 @@ def main() -> None:
                     time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
                     continue
 
+                # v0.3 watchdog behavior: block new entries while degraded
+                if degraded_mode:
+                    decision_row["entry_should_enter"] = False
+                    decision_row["entry_reason"] = f"blocked_by_degraded({degraded_why})"
+                    _write_decision_once_per_bar(decision_row)
+                    elapsed = time.time() - loop_start
+                    time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
+                    continue
+
                 entry_sig = evaluate_entry(features=feats, market_state=market_state)
                 decision_row["entry_should_enter"] = bool(entry_sig.should_enter)
                 decision_row["entry_side"] = entry_sig.side
@@ -465,7 +644,7 @@ def main() -> None:
                     size = min(size_position(signal=entry_sig, market_state=market_state), cfg.max_order_size)
 
                     # Model entries as next-bar to prevent same-bar stop hits
-                    entry_ts_ms = now_ts_ms + expected_step_s * 1000
+                    entry_ts_ms = now_ts_ms + step_ms
 
                     stop_price = compute_initial_stop(
                         side=entry_sig.side,
@@ -492,6 +671,15 @@ def main() -> None:
                     _fill_position_fields(decision_row, position)
 
             _write_decision_once_per_bar(decision_row)
+
+            # Update watchdog rolling window with the "reason" we recorded this bar
+            # (strip DEPRECATED marker prefix when counting).
+            mr = (decision_row.get("market_reason") or "").strip()
+            if mr.startswith("DEGRADED(") and "::" in mr:
+                _, mr2 = mr.split("::", 1)
+                mr = mr2.strip()
+            if mr:
+                recent_reasons.append(mr)
 
             elapsed = time.time() - loop_start
             time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))

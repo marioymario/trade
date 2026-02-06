@@ -1,5 +1,5 @@
 services:
-
+  # Tooling container: Jupyter + one-off commands via `docker compose run --rm trade ...`
   trade:
     build:
       context: .
@@ -13,18 +13,39 @@ services:
     environment:
       - TF_ENABLE_ONEDNN_OPTS=0
       - TF_CPP_MIN_LOG_LEVEL=2
-      # Set timezone for logs
       - TZ=America/Los_Angeles
+    # Run as host user to avoid root-owned bind-mount outputs
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - ./notebooks:/work/notebooks
       - ./files:/work/files
       - ./data:/work/data
     working_dir: /work
-    # Preferred for me:
-    #gpus: all
     command: >
-      jupyter lab --ip=0.0.0.0 --no-browser --allow-root
+      jupyter lab --ip=0.0.0.0 --no-browser
       --NotebookApp.token=''
       --NotebookApp.password=''
+
+  # LIVE loop container: long-running `python -m files.main`
+  paper:
+    image: trade
+    depends_on:
+      - trade
+    container_name: paper
+    env_file:
+      - .env
+    environment:
+      - TF_ENABLE_ONEDNN_OPTS=0
+      - TF_CPP_MIN_LOG_LEVEL=2
+      - TZ=America/Los_Angeles
+    # REQUIRED: survive crashes / daemon restarts
+    restart: unless-stopped
+    # Run as host user to avoid root-owned bind-mount outputs
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ./files:/work/files
+      - ./data:/work/data
+    working_dir: /work
+    command: python -m files.main
 
 
