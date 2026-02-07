@@ -135,6 +135,26 @@ eq:
 	  --live-tag coinbase \
 	  --bt-tag "coinbase_bt_$${RUNID}"
 
+health:
+	docker compose run --rm trade python -m files.main_healthcheck \
+	  --exchange coinbase --symbol BTC_USD --timeframe 5m \
+	  --step-ms 300000 --tail 250 --recent-k 12 \
+	  --max-recent-gap 1 \
+	  --cadence-grace-bars 12 \
+	  --max-bad-recent 2 \
+	  --max-staleness-ms 900000 \
+	  --max-raw-staleness-ms 1800000
+
+health_strict:
+	docker compose run --rm trade python -m files.main_healthcheck \
+	  --exchange coinbase --symbol BTC_USD --timeframe 5m \
+	  --step-ms 300000 --tail 250 --recent-k 12 \
+	  --max-recent-gap 0 \
+	  --cadence-grace-bars 0 \
+	  --max-bad-recent 0 \
+	  --max-staleness-ms 600000 \
+	  --max-raw-staleness-ms 900000
+
 status:
 	@echo "== services in compose =="; \
 	$(COMPOSE) config --services; \
