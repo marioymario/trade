@@ -34,3 +34,7 @@ Thumbs.db
 
 
 data/
+
+# local share helpers (do not commit)
+requestedfiles.sh
+requestedfiles.txt
