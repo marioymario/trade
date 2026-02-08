@@ -161,7 +161,8 @@ eq:
 
 eqflat:
 	./scripts/eqflat.sh "$(DATA_TAG)"
-
+eqflat_triage:
+	./scripts/eqflat_triage.sh
 # ----------------------------
 # Healthchecks
 # ----------------------------

@@ -250,3 +250,537 @@ Goal: collect uninterrupted clean cadence so health becomes OK with no grace war
 docker compose up -d paper
 docker compose logs -f --tail=50 paper
 
+---
+
+HANDOVER FEB 7, 7:57
+
+New Rules for HANDSOFF 
+
+1) Drop-in section for HANDOFF.md
+
+Copy/paste this whole block into your HANDOFF.md (near the top).
+
+# SYNC GATE (must do before proposing changes)
+
+**Rule:** Before suggesting fixes, we sync on reality.
+
+## Step A — Reproduce in one command
+Run:
+
+```bash
+DATA_TAG=<tag> make eqflat
+
+
+Expected output includes:
+
+[decisions] PASS/FAIL
+
+[trades] PASS/FAIL
+
+If FAIL: mismatch block showing first mismatch.
+
+Step B — Report in this exact format
+
+Paste:
+
+Result: PASS/FAIL
+DATA_TAG=...
+RUNID=...
+Layer: decisions|trades
+Window overlap: [start_ts, end_ts]
+First mismatch (ts_ms or trade index):
+Hypothesis (1 sentence, no solution yet):
+Next check I will run (1 command):
+
+
+Only after this report is posted do we propose code changes.
+
+Quick commands (operator cheatsheet)
+Run LIVE paper loop
+DATA_TAG=<tag> make live-up
+make live-logs
+
+Stop LIVE paper loop
+make live-down
+
+Run equivalence from the first LIVE bar (recommended)
+DATA_TAG=<tag> make eqflat
+
+Run plain equivalence against an existing backtest runid
+DATA_TAG=<tag> RUNID=<runid> make eq
+
+Run a windowed backtest manually
+DATA_TAG=<tag> RUNID=<runid> START_TS_MS=<ts> END_TS_MS=<ts> make backtest
+
+Troubleshooting Index (pick ONE, run it, paste output)
+T1 — Confirm LIVE decisions file exists and has data
+DATA_TAG=<tag>
+ls -la data/processed/decisions/${DATA_TAG}/BTC_USD/5m/decisions.csv
+tail -n 3 data/processed/decisions/${DATA_TAG}/BTC_USD/5m/decisions.csv
+
+T2 — Extract START_TS_MS from LIVE (first data row)
+LIVE="data/processed/decisions/<tag>/BTC_USD/5m/decisions.csv"
+awk -F, 'NR==2{print $4; exit}' "$LIVE"
+
+T3 — Show the decision row at a specific ts_ms
+CSV="data/processed/decisions/<tag>/BTC_USD/5m/decisions.csv"
+TS=1770508500000
+awk -F, -v ts="$TS" '$4==ts {print; exit}' "$CSV"
+
+T4 — Trades mismatch debug (show both trade files)
+LIVE_T="data/processed/trades/<live_tag>/BTC_USD/5m/trades.csv"
+BT_T="data/processed/trades/<bt_tag>/BTC_USD/5m/trades.csv"
+echo "LIVE trades:"; tail -n +1 "$LIVE_T" | tail -n 5
+echo "BT trades:";   tail -n +1 "$BT_T" | tail -n 5
+
+Change proposal format (required)
+
+Before coding, write:
+
+Intent: (one sentence)
+
+Constraints: (what must not change; list invariants)
+
+Files touched: (explicit list)
+
+Test plan: (exact command(s), no vagueness)
+
+Risk: (what could break; how we’d notice)
+
+Example test command:
+
+DATA_TAG=paper_local_check make eqflat
+
+
+---
+
+## 2) How to run the “new files.sh” (your `scripts/eqflat.sh` + Makefile target)
+
+You now have **two equivalent ways**:
+
+### Option A (recommended): Make target
+```bash
+DATA_TAG=paper_local_check make eqflat
+
+Option B: Run the script directly
+./scripts/eqflat.sh paper_local_check
+
+
+What eqflat does (in plain English):
+
+reads START_TS_MS from row 2 of LIVE decisions.csv
+
+runs make backtest windowed from that ts
+
+runs make eq against that backtest run
+
+3) Git plan (no noise, no surprises)
+
+Right now you have:
+
+✅ 1 commit already created locally (ahead of origin by 1)
+
+🔶 a set of modified files still uncommitted (HANDOFF.md, engine.py, config/main/check scripts, docker-compose.yml, etc.)
+
+You asked: “are we going to commit all changes we did?”
+Answer: yes — but we do it safely: review → stage → commit → push.
+
+Step 1 — Review what you’re about to publish
+
+This is the “quality control” step. No staging yet.
+
+git diff
+
+
+If that’s too big, do it file by file:
+
+git diff HANDOFF.md
+git diff files/backtest/engine.py
+git diff files/main.py
+git diff docker-compose.yml
+
+Step 2 — Stage everything you intend to ship
+
+If you want to commit all modified tracked files (not ignored stuff), do:
+
+git add HANDOFF.md docker-compose.yml \
+  files/backtest/engine.py files/config.py files/main.py \
+  files/main_data_quality_check.py files/main_features_check.py \
+  files/main_healthcheck.py files/main_sanity_check.py \
+  files/main_smoke.py files/main_state_check.py files/main_storage_check.py
+
+
+(That stages exactly what git status -sb showed.)
+
+Step 3 — Confirm staged set is correct
+git diff --staged
+
+Step 4 — Commit with a clear message
+git commit -m "Wire DATA_TAG/RUN_ENV; stabilize eq workflow"
+
+Step 5 — Run one check before pushing
+DATA_TAG=paper_local_check make eqflat
+
+Step 6 — Push
+git push
+
+
+That’s it.
+
+Important: your .gitignore already protects requestedfiles.sh and requestedfiles.txt, and it ignores data/, so those won’t get committed unless you force-add them (don’t).
+
+4) About the FAIL you saw (trades mismatch)
+
+You just hit a real signal:
+
+decisions PASS
+
+trades FAIL because BT had an extra trade: LONG stop_hit after the first one
+
+That means: lifecycle decision stream aligns, but execution/trade logging diverged in that window.
+
+When you’re ready, the debug path is:
+
+re-run eqflat (save runid)
+
+compare trades.csv LIVE vs BT for that runid
+
+inspect why BT generated a second stop-hit trade
+
+But since you explicitly want to focus on commits/push first: ignore this until your repo state is clean and pushed.
+
+5) “Next chat starter” (minimal, high signal)
+
+Paste this at the top of your next chat and you’ll avoid the whole “meat to the grill” problem:
+
+Goal: keep LIVE↔BT behavioral equivalence (ts-keyed, sync-at-flat).
+Current DATA_TAG: paper_local_check
+Command used: DATA_TAG=paper_local_check make eqflat
+Latest result: PASS/FAIL (paste only summary + mismatch block if FAIL)
+Repo state:
+- last pushed commit: <hash>
+- local unpushed commits: <count>
+What I want to do next: <one sentence>
+Constraints: do not change closed-bar rule / ts_ms semantics / warmup gating.
+
+
+If you want the cleanest workflow long-term, the only “hard rule” I’d enforce is:
+no one proposes changes until they run make eqflat and paste the sync report format.
+
+When you’re ready, paste git diff --staged (or just the filenames you’re unsure about), and I’ll tell you exactly whether it’s safe/clean to commit that batch.
+
+---
+
+HANDOVER — 2026-02-07 — EQFLAT runner + LIVE↔BT equivalence workflow
+0) Context and goal
+
+We are building a trading system where LIVE and BACKTEST must match in lifecycle behavior (position open/close + reasons) when comparing over an overlapped time window, synced at flat.
+
+We just added a one-command operator workflow:
+
+make eqflat runs:
+
+a windowed backtest that starts exactly at the first LIVE decision timestamp (row 2)
+
+the equivalence check against LIVE
+
+The intended outcome is fast, repeatable verification of LIVE↔BT equivalence with minimal operator steps.
+
+1) What changed (high-level)
+1.1 New operator command
+
+Command (example):
+
+DATA_TAG=paper_local_check make eqflat
+
+
+What it does:
+
+Reads LIVE decisions CSV:
+data/processed/decisions/${DATA_TAG}/BTC_USD/5m/decisions.csv
+
+Extracts START_TS_MS from the first data row (NR==2, column 4)
+
+Creates a new RUNID=eqflat_YYYYmmdd_HHMMSS
+
+Runs:
+
+make backtest using that START_TS_MS
+
+make eq using that RUNID (so it compares LIVE tag vs ${DATA_TAG}_bt_${RUNID})
+
+1.2 New script
+
+File:
+
+scripts/eqflat.sh
+
+Purpose:
+
+Provide a reliable wrapper so you don’t have to type long env-chains.
+
+Important:
+
+This script intentionally does not use set -euo pipefail to avoid “unwanted behavior” you’ve hit before.
+
+It does explicit return-code checks for make backtest and make eq.
+
+1.3 Makefile improvements
+
+The Makefile was updated to:
+
+Standardize env-forwarding into docker containers via RUN_ENV:
+
+--env DATA_TAG --env CCXT_EXCHANGE --env SYMBOL --env TIMEFRAME ...
+
+Make DATA_TAG the storage namespace default (if not provided)
+
+Update eq to use:
+
+--live-tag "$(DATA_TAG)"
+
+--bt-tag "$(DATA_TAG)_bt_$${RUNID}"
+
+Add eqflat: target which calls:
+
+./scripts/eqflat.sh "$(DATA_TAG)"
+
+1.4 .gitignore updates
+
+We explicitly do NOT commit local sharing helpers:
+
+requestedfiles.sh
+
+requestedfiles.txt
+
+Also data/ is ignored (raw/processed/cache etc).
+
+2) Current operator workflow (the “one-liner” way)
+Run eqflat (recommended)
+DATA_TAG=paper_local_check make eqflat
+
+
+Expected:
+
+backtest runs inside docker, creates:
+
+data/processed/decisions/${DATA_TAG}_bt_${RUNID}/BTC_USD/5m/decisions.csv
+
+data/processed/trades/${DATA_TAG}_bt_${RUNID}/BTC_USD/5m/trades.csv
+
+equivalence tool runs and prints PASS/FAIL
+
+Run manual (fallback)
+
+If you want to do it step-by-step without the script:
+
+Get first live ts:
+
+LIVE="data/processed/decisions/paper_local_check/BTC_USD/5m/decisions.csv"
+START_TS_MS="$(awk -F, 'NR==2{print $4; exit}' "$LIVE")"
+echo "$START_TS_MS"
+
+
+Run backtest:
+
+DATA_TAG=paper_local_check RUNID="eqflat_$(date -u +%Y%m%d_%H%M%S)" START_TS_MS="$START_TS_MS" make backtest
+
+
+Run equivalence:
+
+DATA_TAG=paper_local_check RUNID="$RUNID" make eq
+
+3) Known behavior and known risk
+3.1 “PASS can become FAIL later” is possible
+
+Because LIVE continues generating decisions/trades over time, the overlap window grows, and new divergences can appear.
+
+Example we observed:
+
+decisions: PASS
+
+trades: FAIL because BT had 2 trades in window while LIVE had 1
+
+This means:
+
+The system is stable enough to compare, but lifecycle may still diverge under some conditions.
+
+3.2 What to check when trades mismatch
+
+When you see:
+
+[trades] length mismatch: LIVE=1 BT=2
+
+Do:
+
+Inspect live trades:
+
+LIVE_TRADES="data/processed/trades/${DATA_TAG}/BTC_USD/5m/trades.csv"
+tail -n 20 "$LIVE_TRADES"
+
+
+Inspect bt trades (from the run shown in output):
+
+BT_TRADES="data/processed/trades/${DATA_TAG}_bt_${RUNID}/BTC_USD/5m/trades.csv"
+tail -n 40 "$BT_TRADES"
+
+
+Find the “extra” trade’s entry/exit ts_ms and then look up decisions around it:
+
+LIVE_DEC="data/processed/decisions/${DATA_TAG}/BTC_USD/5m/decisions.csv"
+BT_DEC="data/processed/decisions/${DATA_TAG}_bt_${RUNID}/BTC_USD/5m/decisions.csv"
+
+# Example: check a specific ts_ms
+awk -F, '$4==1770517500000 {print; exit}' "$LIVE_DEC"
+awk -F, '$4==1770517500000 {print; exit}' "$BT_DEC"
+
+
+Interpretation:
+
+If LIVE is flat/no trade while BT opens/closes, it’s a real divergence (not a window/sync artifact).
+
+4) Repo hygiene rules (no noise, no surprises)
+4.1 “No changes before looking”
+
+Before editing anything:
+
+Always run:
+
+git status -sb
+
+
+If code-related:
+
+git diff
+
+4.2 “No patches”
+
+Do not use git add -p during normal work unless explicitly required.
+We stage whole coherent changesets.
+
+4.3 “Quality work only”
+
+Every change must satisfy:
+
+reproducible command path (documented)
+
+no new scripts written into the wrong directory
+
+no accidental new untracked files unless intentional
+
+commit messages reflect real scope
+
+5) Git plan (commit & push) — clean and repeatable
+5.1 What we commit vs don’t commit
+
+Commit:
+
+tracked code/docs changes (M ... files)
+
+scripts under scripts/
+
+Do NOT commit:
+
+anything under data/ (ignored)
+
+requestedfiles.sh, requestedfiles.txt (ignored)
+
+5.2 Current state summary
+
+You are:
+
+ahead 1 commit already (you pushed nothing yet)
+
+have additional modified tracked files:
+
+HANDOFF.md
+
+docker-compose.yml
+
+files/... (multiple)
+
+etc.
+
+5.3 Recommended commit structure (2 commits total)
+
+You already have:
+
+Commit #1: “Add eqflat script and Makefile target”
+
+Now do:
+
+Commit #2: “Backtest/live plumbing and behavior changes” (the remaining modified tracked files)
+
+Exact commands:
+
+Stage all modified tracked files (only tracked ones):
+
+git add -u
+
+
+Verify staging:
+
+git status -sb
+git diff --staged
+
+
+Commit:
+
+git commit -m "Backtest/live plumbing and behavior fixes"
+
+
+Push both commits:
+
+git push
+
+6) Files list (what matters)
+
+New:
+
+scripts/eqflat.sh
+
+scripts/preflight.sh (currently empty; decide if we keep or delete later)
+
+Modified (tracked):
+
+.gitignore
+
+Makefile
+
+plus your current list from git status -sb (engine/config/main/check scripts etc.)
+
+7) Next actions (practical)
+
+Decide what to do with scripts/preflight.sh:
+
+It’s empty right now. Either:
+
+keep it as placeholder with TODO + basic checks
+
+or delete it (cleaner)
+
+If eqflat produces trade mismatches again:
+
+capture the mismatch lines
+
+inspect the “extra” trade in BT and find corresponding decision rows at entry/exit ts_ms
+
+identify which rule or state difference caused the extra open/close
+
+8) Operator quick reference
+
+Run full check:
+
+DATA_TAG=paper_local_check make eqflat
+
+
+Just run equivalence (if you already know RUNID):
+
+DATA_TAG=paper_local_check RUNID="..." make eq
+
+
+Just run backtest windowed:
+
+DATA_TAG=paper_local_check RUNID="..." START_TS_MS="..." make backtest
+
+End HANDOVER
