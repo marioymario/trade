@@ -10,19 +10,19 @@ import pandas as pd
 
 from files.broker.paper import PaperBroker
 from files.config import load_trading_config
+from files.data.decisions import append_decision_csv, decisions_csv_path
+from files.data.features import compute_features, validate_latest_features
 from files.data.market import fetch_market_data
 from files.data.storage import append_ohlcv_parquet, load_recent_ohlcv_parquet
-from files.data.features import compute_features, validate_latest_features
 from files.data.trades import append_trade_csv
-from files.data.decisions import append_decision_csv, decisions_csv_path
 from files.strategy.filters import determine_market_state
 from files.strategy.rules import (
+    ATR_MULT,
+    compute_initial_stop,
+    compute_trailing_stop_update,
     evaluate_entry,
     evaluate_exit,
     size_position,
-    compute_initial_stop,
-    compute_trailing_stop_update,
-    ATR_MULT,
 )
 from files.utils.logger import get_logger
 
@@ -40,6 +40,14 @@ def _timeframe_to_seconds(timeframe: str) -> int:
     if unit == "d":
         return n * 60 * 60 * 24
     raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+
+
+def _storage_symbol(symbol: str) -> str:
+    """
+    Normalize symbol for filesystem + processed CSV identity:
+      - BTC/USD -> BTC_USD
+    """
+    return symbol.strip().upper().replace("/", "_")
 
 
 def _cadence_ok(df: pd.DataFrame, expected_step_s: int) -> bool:
@@ -161,16 +169,6 @@ def _drop_in_progress_last_bar_if_safe(df: pd.DataFrame, *, min_bars: int) -> pd
     return df
 
 
-def _ts_to_ms(ts) -> int:
-    try:
-        t = pd.to_datetime(ts, utc=True, errors="coerce")
-        if pd.isna(t):
-            return 0
-        return int(getattr(t, "value", 0) // 1_000_000)
-    except Exception:
-        return 0
-
-
 def _blank_decision_row(*, ts_ms: int, now_iso: str, bar_high: float, bar_low: float) -> dict:
     """
     Create a full-shape decision row (so CSV stays consistent) even when we skip trading.
@@ -230,15 +228,25 @@ def _is_degraded(*, recent_reasons: deque[str], internal_cadence_ok: bool) -> tu
 def main() -> None:
     cfg = load_trading_config()
 
+    # Contract:
+    # - cfg.ccxt_exchange: fetch source
+    # - cfg.data_tag: storage namespace (raw/processed)
+    data_tag = cfg.data_tag
+
+    ccxt_symbol = cfg.symbol
+    storage_symbol = _storage_symbol(cfg.symbol)
+
     logger.info("🚀 Trading system starting")
     logger.info(
         "Trading config loaded",
         extra={
-            "symbol": cfg.symbol,
+            "symbol": ccxt_symbol,
+            "storage_symbol": storage_symbol,
             "timeframe": cfg.timeframe,
             "loop_sleep_seconds": cfg.loop_sleep_seconds,
             "dry_run": cfg.dry_run,
             "ccxt_exchange": cfg.ccxt_exchange,
+            "data_tag": data_tag,
             "max_order_size": cfg.max_order_size,
             "min_bars": cfg.min_bars,
             "fee_bps": getattr(cfg, "fee_bps", None),
@@ -257,11 +265,8 @@ def main() -> None:
     step_ms = int(expected_step_s * 1000)
 
     # ---- Restart-safe decision dedupe: seed last_decision_ts_ms from existing CSV ----
-    last_decision_ts_ms: int | None = None
-    dpath_existing = decisions_csv_path(
-        exchange=cfg.ccxt_exchange, symbol=cfg.symbol, timeframe=cfg.timeframe
-    )
-    last_decision_ts_ms = _read_last_ts_ms_from_decisions_csv(dpath_existing)
+    dpath_existing = decisions_csv_path(exchange=data_tag, symbol=storage_symbol, timeframe=cfg.timeframe)
+    last_decision_ts_ms: int | None = _read_last_ts_ms_from_decisions_csv(dpath_existing)
     if last_decision_ts_ms is not None:
         logger.info(
             "Decision dedupe initialized from existing CSV",
@@ -292,46 +297,14 @@ def main() -> None:
         if last_decision_ts_ms is not None and ts_ms <= last_decision_ts_ms:
             return
 
-        try:
-            dpath = append_decision_csv(
-                decision=decision_row,
-                exchange=cfg.ccxt_exchange,
-                symbol=cfg.symbol,
-                timeframe=cfg.timeframe,
-            )
-            last_decision_ts_ms = ts_ms
-            logger.info("Decision recorded", extra={"csv_path": dpath})
-        except Exception:
-            # Never crash the LIVE loop due to logging failures.
-            logger.exception("Decision append failed (non-fatal); continuing")
-
-    def _last_closed_bar_from_store(*, tail_n: int) -> tuple[int, str, float, float, float]:
-        """
-        Best-effort fallback anchor when store is available.
-        Returns (ts_ms, iso, close, high, low). Zeroed if unavailable.
-        """
-        try:
-            s = load_recent_ohlcv_parquet(
-                exchange=cfg.ccxt_exchange,
-                symbol=cfg.symbol,
-                timeframe=cfg.timeframe,
-                tail_n=int(tail_n),
-            )
-            s = _normalize_df(s)
-            s = _drop_in_progress_last_bar_if_safe(s, min_bars=cfg.min_bars)
-            if len(s) == 0:
-                return 0, "", 0.0, 0.0, 0.0
-
-            row = s.iloc[-1]
-            ts = row.get("timestamp", None)
-            ts_ms = _ts_to_ms(ts)
-            iso = ts.isoformat() if hasattr(ts, "isoformat") else ""
-            close = float(row.get("close", 0.0))
-            high = float(row.get("high", close))
-            low = float(row.get("low", close))
-            return ts_ms, iso, close, high, low
-        except Exception:
-            return 0, "", 0.0, 0.0, 0.0
+        dpath = append_decision_csv(
+            decision=decision_row,
+            exchange=data_tag,
+            symbol=storage_symbol,   # STORAGE SYMBOL (e.g. BTC_USD)
+            timeframe=cfg.timeframe,
+        )
+        last_decision_ts_ms = ts_ms
+        logger.info("Decision recorded", extra={"csv_path": dpath})
 
     # Headroom so dropping the in-progress bar never starves min_bars.
     fetch_limit = max(cfg.min_bars, 200) + 1
@@ -350,110 +323,39 @@ def main() -> None:
     while True:
         loop_start = time.time()
         try:
+            # Optional failure injections
+            if os.environ.get("FORCE_FETCH_FAIL", "").strip() in ("1", "true", "yes", "on"):
+                raise RuntimeError("FORCE_FETCH_FAIL=1")
+
             # ------------------------
-            # FETCH + PERSIST (Tier 3.5: never crash)
+            # FETCH + PERSIST
             # ------------------------
-
-            # Optional test hooks
-            force_fetch_fail = os.environ.get("FORCE_FETCH_FAIL", "0").strip() == "1"
-            force_persist_fail = os.environ.get("FORCE_PERSIST_FAIL", "0").strip() == "1"
-
-            try:
-                if force_fetch_fail:
-                    raise RuntimeError("FORCE_FETCH_FAIL=1")
-
-                fetched = fetch_market_data(
-                    symbol=cfg.symbol,
-                    timeframe=cfg.timeframe,
-                    limit=int(fetch_limit),
-                    min_bars_warn=cfg.min_bars,
-                    ccxt_exchange=cfg.ccxt_exchange,
-                )
-            except Exception as e:
-                # Always record a monotonic decision, even if store is empty/unavailable.
-                ts_ms, iso, close, hi, lo = _last_closed_bar_from_store(tail_n=int(store_tail_n))
-                if (ts_ms or 0) <= 0 and last_decision_ts_ms is not None:
-                    ts_ms = int(last_decision_ts_ms + step_ms)
-                    iso = ""
-                    close = 0.0
-                    hi = 0.0
-                    lo = 0.0
-
-                position = broker.get_tracked_position(
-                    symbol=cfg.symbol,
-                    latest_close=float(close),
-                    latest_atr=0.0,
-                    atr_mult=float(ATR_MULT),
-                )
-
-                mr = "fetch_failed"
-                logger.warning(
-                    "Market fetch failed; recording skip decision and continuing",
-                    extra={"symbol": cfg.symbol, "timeframe": cfg.timeframe, "error": repr(e), "ts_ms": ts_ms},
-                )
-
-                drow = _blank_decision_row(ts_ms=int(ts_ms or 0), now_iso=iso, bar_high=hi, bar_low=lo)
-                drow["market_reason"] = mr if not degraded_mode else f"DEGRADED({degraded_why})::{mr}"
-                _fill_position_fields(drow, position)
-                _write_decision_once_per_bar(drow)
-                recent_reasons.append(mr)
-
-                time.sleep(cfg.loop_sleep_seconds)
-                continue
-
+            fetched = fetch_market_data(
+                symbol=ccxt_symbol,
+                timeframe=cfg.timeframe,
+                limit=int(fetch_limit),
+                min_bars_warn=cfg.min_bars,
+                ccxt_exchange=cfg.ccxt_exchange,  # FETCH SOURCE
+            )
             fetched = _normalize_df(fetched)
             fetched = _drop_in_progress_last_bar_if_safe(fetched, min_bars=cfg.min_bars)
 
-            try:
-                if force_persist_fail:
-                    raise PermissionError("FORCE_PERSIST_FAIL=1")
+            if os.environ.get("FORCE_PERSIST_FAIL", "").strip() in ("1", "true", "yes", "on"):
+                raise RuntimeError("FORCE_PERSIST_FAIL=1")
 
-                append_ohlcv_parquet(
-                    df=fetched,
-                    exchange=cfg.ccxt_exchange,
-                    symbol=cfg.symbol,
-                    timeframe=cfg.timeframe,
-                )
-            except Exception as e:
-                # Persist failed: record one skip decision keyed to current closed bar.
-                if len(fetched) > 0:
-                    tail_ts = pd.to_datetime(fetched.iloc[-1]["timestamp"], utc=True, errors="coerce")
-                    now_ts_ms = _ts_to_ms(tail_ts)
-                    now_iso = tail_ts.isoformat() if hasattr(tail_ts, "isoformat") else ""
-                    close = float(fetched.iloc[-1].get("close", 0.0))
-                    hi = float(fetched.iloc[-1].get("high", close))
-                    lo = float(fetched.iloc[-1].get("low", close))
-                else:
-                    now_ts_ms, now_iso, close, hi, lo = _last_closed_bar_from_store(tail_n=int(store_tail_n))
-
-                position = broker.get_tracked_position(
-                    symbol=cfg.symbol,
-                    latest_close=float(close),
-                    latest_atr=0.0,
-                    atr_mult=float(ATR_MULT),
-                )
-
-                mr = "persist_failed"
-                logger.error(
-                    "Persist failed; recording skip decision and continuing",
-                    extra={"symbol": cfg.symbol, "timeframe": cfg.timeframe, "error": repr(e), "ts_ms": now_ts_ms},
-                )
-
-                drow = _blank_decision_row(ts_ms=int(now_ts_ms or 0), now_iso=now_iso, bar_high=hi, bar_low=lo)
-                drow["market_reason"] = mr if not degraded_mode else f"DEGRADED({degraded_why})::{mr}"
-                _fill_position_fields(drow, position)
-                _write_decision_once_per_bar(drow)
-                recent_reasons.append(mr)
-
-                time.sleep(cfg.loop_sleep_seconds)
-                continue
+            append_ohlcv_parquet(
+                df=fetched,
+                exchange=data_tag,          # STORAGE TAG
+                symbol=storage_symbol,      # STORAGE SYMBOL
+                timeframe=cfg.timeframe,
+            )
 
             # ------------------------
             # LOAD STORE + MERGE (robust)
             # ------------------------
             store_df = load_recent_ohlcv_parquet(
-                exchange=cfg.ccxt_exchange,
-                symbol=cfg.symbol,
+                exchange=data_tag,          # STORAGE TAG
+                symbol=storage_symbol,      # STORAGE SYMBOL
                 timeframe=cfg.timeframe,
                 tail_n=int(store_tail_n),
             )
@@ -489,7 +391,7 @@ def main() -> None:
 
             if rows > 0 and "timestamp" in combined.columns:
                 tail_ts = pd.to_datetime(combined.iloc[-1]["timestamp"], utc=True, errors="coerce")
-                now_ts_ms = _ts_to_ms(tail_ts)
+                now_ts_ms = int(getattr(tail_ts, "value", 0) // 1_000_000) if not pd.isna(tail_ts) else 0
                 now_iso = tail_ts.isoformat() if hasattr(tail_ts, "isoformat") else ""
                 bar_high = float(combined.iloc[-1].get("high", combined.iloc[-1].get("close", 0.0)))
                 bar_low = float(combined.iloc[-1].get("low", combined.iloc[-1].get("close", 0.0)))
@@ -500,7 +402,7 @@ def main() -> None:
                 bar_low = 0.0
 
             position = broker.get_tracked_position(
-                symbol=cfg.symbol,
+                symbol=ccxt_symbol,
                 latest_close=float(combined.iloc[-1]["close"]) if rows > 0 and "close" in combined.columns else 0.0,
                 latest_atr=0.0,
                 atr_mult=float(ATR_MULT),
@@ -513,7 +415,6 @@ def main() -> None:
                 _fill_position_fields(drow, position)
                 _write_decision_once_per_bar(drow)
                 recent_reasons.append(mr)
-
                 time.sleep(cfg.loop_sleep_seconds)
                 continue
 
@@ -522,7 +423,7 @@ def main() -> None:
                 logger.warning(
                     "Cadence check failed; skipping loop (possible partial outage / sparse feed)",
                     extra={
-                        "symbol": cfg.symbol,
+                        "symbol": ccxt_symbol,
                         "timeframe": cfg.timeframe,
                         "expected_step_s": int(expected_step_s),
                         "rows_combined": int(rows),
@@ -533,7 +434,6 @@ def main() -> None:
                 _fill_position_fields(drow, position)
                 _write_decision_once_per_bar(drow)
                 recent_reasons.append(mr)
-
                 time.sleep(cfg.loop_sleep_seconds)
                 continue
 
@@ -553,21 +453,21 @@ def main() -> None:
                     },
                 )
 
+            # ------------------------
+            # FEATURES + MARKET STATE
+            # ------------------------
             feats = compute_features(combined)
 
             try:
                 validate_latest_features(feats)
             except Exception as e:
                 mr = "features_invalid"
-                logger.warning(
-                    "Latest features invalid; skipping loop",
-                    extra={"symbol": cfg.symbol, "error": repr(e)},
-                )
+                logger.warning("Latest features invalid; skipping loop", extra={"symbol": ccxt_symbol, "error": repr(e)})
 
                 try:
                     latest_row = feats.iloc[-1]
                     ts = latest_row.get("timestamp", None)
-                    ft_ts_ms = _ts_to_ms(ts) if ts is not None else now_ts_ms
+                    ft_ts_ms = int(getattr(ts, "value", 0) // 1_000_000) if ts is not None else now_ts_ms
                     ft_iso = ts.isoformat() if hasattr(ts, "isoformat") else now_iso
                     close = float(latest_row.get("close", 0.0))
                     hi = float(latest_row.get("high", close))
@@ -585,15 +485,10 @@ def main() -> None:
                 _fill_position_fields(drow, position)
                 _write_decision_once_per_bar(drow)
                 recent_reasons.append(mr)
-
                 time.sleep(cfg.loop_sleep_seconds)
                 continue
 
-            market_state = determine_market_state(
-                feats,
-                timeframe=cfg.timeframe,
-                min_bars=cfg.min_bars,
-            )
+            market_state = determine_market_state(feats, timeframe=cfg.timeframe, min_bars=cfg.min_bars)
 
             latest_row = feats.iloc[-1]
             latest_close = float(latest_row["close"])
@@ -602,11 +497,11 @@ def main() -> None:
             latest_atr = float(latest_row["atr"])
 
             ts = latest_row.get("timestamp", None)
-            now_ts_ms = _ts_to_ms(ts) if ts is not None else 0
+            now_ts_ms = int(getattr(ts, "value", 0) // 1_000_000) if ts is not None else 0
             now_iso = ts.isoformat() if hasattr(ts, "isoformat") else ""
 
             position = broker.get_tracked_position(
-                symbol=cfg.symbol,
+                symbol=ccxt_symbol,
                 latest_close=latest_close,
                 latest_atr=latest_atr,
                 atr_mult=float(ATR_MULT),
@@ -645,8 +540,11 @@ def main() -> None:
 
             _fill_position_fields(decision_row, position)
 
+            # ------------------------
+            # EXIT / MANAGE POSITION
+            # ------------------------
             if position is not None:
-                u_usd, u_pct = broker.get_unrealized_pnl(symbol=cfg.symbol, last_price=latest_close)
+                u_usd, u_pct = broker.get_unrealized_pnl(symbol=ccxt_symbol, last_price=latest_close)
                 decision_row["unrealized_pnl_usd"] = float(u_usd)
                 decision_row["unrealized_pnl_pct"] = float(u_pct)
 
@@ -667,7 +565,7 @@ def main() -> None:
                         position.stop_price is None or float(new_stop) != float(position.stop_price)
                     ):
                         updated = broker.update_stop(
-                            symbol=cfg.symbol,
+                            symbol=ccxt_symbol,
                             new_stop_price=float(new_stop),
                             new_trailing_anchor_price=float(new_anchor) if new_anchor is not None else None,
                         )
@@ -695,32 +593,31 @@ def main() -> None:
                         exit_price = float(position.stop_price)
 
                     trade = broker.realize_and_close(
-                        symbol=cfg.symbol,
+                        symbol=ccxt_symbol,
                         exit_price=float(exit_price),
                         reason=exit_reason,
                         exit_ts_ms=now_ts_ms if now_ts_ms > 0 else None,
                     )
 
-                    try:
-                        csv_path = append_trade_csv(
-                            trade=trade,
-                            exchange=cfg.ccxt_exchange,
-                            symbol=cfg.symbol,
-                            timeframe=cfg.timeframe,
-                            market_reason=market_state.reason,
-                        )
-                        logger.info("Trade recorded", extra={"csv_path": csv_path})
-                    except Exception:
-                        logger.exception("Trade append failed (non-fatal); continuing")
+                    csv_path = append_trade_csv(
+                        trade=trade,
+                        exchange=data_tag,
+                        symbol=storage_symbol,   # STORAGE SYMBOL
+                        timeframe=cfg.timeframe,
+                        market_reason=market_state.reason,
+                    )
+                    logger.info("Trade recorded", extra={"csv_path": csv_path})
 
                     _write_decision_once_per_bar(decision_row)
-
                     time.sleep(cfg.loop_sleep_seconds)
                     continue
 
+            # ------------------------
+            # ENTRY
+            # ------------------------
             if position is None:
                 remaining = broker.cooldown_remaining_bars(
-                    symbol=cfg.symbol,
+                    symbol=ccxt_symbol,
                     now_ts_ms=now_ts_ms,
                     expected_step_s=int(expected_step_s),
                     cooldown_bars=int(getattr(cfg, "cooldown_bars", 0)),
@@ -748,8 +645,12 @@ def main() -> None:
                 decision_row["entry_reason"] = entry_sig.reason
 
                 if entry_sig.should_enter:
-                    size = min(size_position(signal=entry_sig, market_state=market_state), cfg.max_order_size)
+                    size = min(
+                        size_position(signal=entry_sig, market_state=market_state),
+                        cfg.max_order_size,
+                    )
 
+                    # Entries are modeled as next-bar (prevents same-bar stop hits)
                     entry_ts_ms = now_ts_ms + step_ms
 
                     stop_price = compute_initial_stop(
@@ -759,7 +660,7 @@ def main() -> None:
                     )
 
                     broker.open_position(
-                        symbol=cfg.symbol,
+                        symbol=ccxt_symbol,
                         side=entry_sig.side,
                         size=size,
                         entry_price=latest_close,
@@ -769,7 +670,7 @@ def main() -> None:
                     )
 
                     position = broker.get_tracked_position(
-                        symbol=cfg.symbol,
+                        symbol=ccxt_symbol,
                         latest_close=latest_close,
                         latest_atr=latest_atr,
                         atr_mult=float(ATR_MULT),
@@ -788,6 +689,27 @@ def main() -> None:
             elapsed = time.time() - loop_start
             time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
 
+        except RuntimeError as e:
+            # Failure injections (fetch/persist) should behave as "skip but continue"
+            msg = str(e)
+            if "FORCE_FETCH_FAIL=1" in msg:
+                logger.warning("Market fetch failed; recording skip decision and continuing")
+                drow = _blank_decision_row(ts_ms=0, now_iso="", bar_high=0.0, bar_low=0.0)
+                drow["market_reason"] = "fetch_failed"
+                _write_decision_once_per_bar(drow)
+                recent_reasons.append("fetch_failed")
+                time.sleep(cfg.loop_sleep_seconds)
+                continue
+            if "FORCE_PERSIST_FAIL=1" in msg:
+                logger.error("Persist failed; recording skip decision and continuing")
+                drow = _blank_decision_row(ts_ms=0, now_iso="", bar_high=0.0, bar_low=0.0)
+                drow["market_reason"] = "persist_failed"
+                _write_decision_once_per_bar(drow)
+                recent_reasons.append("persist_failed")
+                time.sleep(cfg.loop_sleep_seconds)
+                continue
+            logger.exception("Unhandled runtime error in main loop")
+            time.sleep(cfg.loop_sleep_seconds)
         except KeyboardInterrupt:
             logger.info("Stopping (KeyboardInterrupt)")
             break

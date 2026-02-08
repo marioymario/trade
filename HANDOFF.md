@@ -215,3 +215,38 @@ Out of scope:
 
 **Mjölnir principle:** correctness first, speed second.
 
+
+--- 
+
+# HANDSOFF — 2026-02-07 (after v0.2.1 docs + Tier 2/healthcheck upgrades)
+
+## Current status
+- LIVE ↔ BACKTEST lifecycle equivalence is the correctness anchor (v0.2-equivalence-pass).
+- Tier 2 hardening added:
+  - decision monotonicity enforcement option (`ENFORCE_DECISION_MONOTONIC=1`) in decisions append path
+  - resilience behaviors for forced failure tests (fetch/persist failures record skip decisions)
+- Healthcheck implemented and working:
+  - `files/main_healthcheck.py` supports operator mode vs strict
+  - includes decision staleness + raw parquet staleness checks
+  - includes cadence grace window after restart/downtime
+  - supports `--json 1` for monitoring pipelines
+- Docs added:
+  - HANDOFF.md v0.2.1
+  - DATA_LAYOUT.md based on current tree
+  - healthcheck semantics documented (operator vs strict)
+
+## What happened today (evidence)
+- Verified forced-failure behaviors:
+  - `FORCE_FETCH_FAIL=1` → healthcheck shows decisions stale (expected) when paper stopped; when running, records skip decisions
+  - `FORCE_PERSIST_FAIL=1` → records `persist_failed` decisions; these show up as historical markers in tail (warning-only after hardening)
+- Healthcheck now returns WARN after downtime until cadence window is clean again:
+  - `clean_trailing_cadence_diffs` climbs over time; OK once >= grace bars
+
+## Overnight plan (recommended)
+Goal: collect uninterrupted clean cadence so health becomes OK with no grace warnings.
+
+1) Start LIVE paper:
+```bash
+docker compose up -d paper
+docker compose logs -f --tail=50 paper
+

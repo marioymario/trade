@@ -1,3 +1,4 @@
+# files/backtest/engine.py
 from __future__ import annotations
 
 import csv
@@ -10,18 +11,18 @@ import pandas as pd
 
 from files.broker.paper import PaperBroker
 from files.config import TradingConfig, load_trading_config
-from files.data.paths import raw_symbol_dir
-from files.data.features import compute_features, validate_latest_features
-from files.data.trades import append_trade_csv
 from files.data.decisions import append_decision_csv, decisions_csv_path
+from files.data.features import compute_features, validate_latest_features
+from files.data.paths import raw_symbol_dir, trades_csv_path
+from files.data.trades import append_trade_csv
 from files.strategy.filters import determine_market_state
 from files.strategy.rules import (
+    ATR_MULT,
+    compute_initial_stop,
+    compute_trailing_stop_update,
     evaluate_entry,
     evaluate_exit,
     size_position,
-    compute_initial_stop,
-    compute_trailing_stop_update,
-    ATR_MULT,
 )
 from files.utils.logger import get_logger
 
@@ -50,6 +51,14 @@ def _timeframe_to_seconds(timeframe: str) -> int:
     if unit == "d":
         return n * 60 * 60 * 24
     raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+
+
+def _storage_symbol(symbol: str) -> str:
+    """
+    Normalize symbol for filesystem + processed CSV identity:
+      - BTC/USD -> BTC_USD
+    """
+    return symbol.strip().upper().replace("/", "_")
 
 
 def _fill_position_fields(decision_row: dict, position) -> None:
@@ -151,22 +160,40 @@ def run_backtest(
     - loads OHLCV from local parquet (data/raw/...)
     - reuses same strategy/broker/CSV writers as main.py
     - does NOT fetch, does NOT sleep
-    - writes to exchange namespace: "{exchange}_bt_{runid}"
+    - reads from storage namespace: cfg.data_tag
+    - writes to exchange namespace: "{data_tag}_bt_{runid}"
+
+    IMPORTANT behavior for equivalence:
+    - If start_ts_ms is provided, we keep the broker FLAT until now_ts_ms >= start_ts_ms.
+      (We still load warmup bars prior to start_ts_ms so indicators/features are valid.)
+      This prevents backtest from carrying a pre-window position into the overlap.
     """
     cfg = cfg or load_trading_config()
+    data_tag = cfg.data_tag
+
+    ccxt_symbol = cfg.symbol
+    storage_symbol = _storage_symbol(cfg.symbol)
 
     expected_step_s = _timeframe_to_seconds(cfg.timeframe)
 
-    bt_exchange = f"{cfg.ccxt_exchange}_bt_{runid}"
+    # Backtest output namespace is derived from storage tag (NOT fetch source)
+    bt_exchange = f"{data_tag}_bt_{runid}"
+
+    trade_start_ts_ms: Optional[int] = int(start_ts_ms) if start_ts_ms is not None else None
 
     logger.info(
         "Backtest starting",
         extra={
             "runid": runid,
-            "bt_exchange": bt_exchange,
-            "symbol": cfg.symbol,
+            "ccxt_exchange": cfg.ccxt_exchange,  # fetch source (metadata)
+            "data_tag": data_tag,  # storage namespace (read root)
+            "bt_exchange": bt_exchange,  # backtest output namespace
+            "symbol": ccxt_symbol,
+            "storage_symbol": storage_symbol,
             "timeframe": cfg.timeframe,
             "min_bars": cfg.min_bars,
+            "trade_start_ts_ms": trade_start_ts_ms,
+            "end_ts_ms": int(end_ts_ms) if end_ts_ms is not None else None,
         },
     )
 
@@ -176,34 +203,42 @@ def run_backtest(
         slippage_bps=getattr(cfg, "slippage_bps", 0.0),
     )
 
-    all_bars = _load_all_ohlcv_parquet(
-        exchange=cfg.ccxt_exchange,
-        symbol=cfg.symbol,
-        timeframe=cfg.timeframe,
-    )
+    # IMPORTANT: read raw bars from DATA_TAG storage namespace, using STORAGE SYMBOL
+    all_bars = _load_all_ohlcv_parquet(exchange=data_tag, symbol=storage_symbol, timeframe=cfg.timeframe)
 
     if len(all_bars) == 0:
         raise RuntimeError(
-            f"No bars found under data/raw/{cfg.ccxt_exchange}/{cfg.symbol}/{cfg.timeframe}"
+            f"No bars found under data/raw/{data_tag}/{storage_symbol}/{cfg.timeframe} "
+            f"(DATA_TAG={data_tag}, CCXT_EXCHANGE={cfg.ccxt_exchange})"
         )
 
-    if start_ts_ms is not None or end_ts_ms is not None:
-        ts_ms = (all_bars["timestamp"].astype("int64") // 1_000_000).astype("int64")
-        mask = pd.Series(True, index=all_bars.index)
-        if start_ts_ms is not None:
-            mask &= ts_ms >= int(start_ts_ms)
-        if end_ts_ms is not None:
-            mask &= ts_ms <= int(end_ts_ms)
-        all_bars = all_bars.loc[mask].reset_index(drop=True)
+    ts_ms_all = (all_bars["timestamp"].astype("int64") // 1_000_000).astype("int64")
+
+    # If trade_start_ts_ms is set, include a warmup prefix before it, but do not trade until >= trade_start_ts_ms.
+    if trade_start_ts_ms is not None:
+        idxs = all_bars.index[ts_ms_all >= int(trade_start_ts_ms)].tolist()
+        if not idxs:
+            raise RuntimeError(f"START_TS_MS={trade_start_ts_ms} is after the newest bar in raw data.")
+        first_trade_i = int(idxs[0])
+
+        # Warmup: include enough history to compute features at trade start.
+        warmup_bars = max(int(cfg.min_bars), 50) + 5
+        start_i0 = max(0, first_trade_i - warmup_bars)
+        all_bars = all_bars.iloc[start_i0:].reset_index(drop=True)
+        ts_ms_all = (all_bars["timestamp"].astype("int64") // 1_000_000).astype("int64")
+
+    # Apply end filter after warmup expansion (so we keep warmup, but can still cap the replay window).
+    if end_ts_ms is not None:
+        mask_end = ts_ms_all <= int(end_ts_ms)
+        all_bars = all_bars.loc[mask_end].reset_index(drop=True)
+        ts_ms_all = (all_bars["timestamp"].astype("int64") // 1_000_000).astype("int64")
 
     if len(all_bars) == 0:
-        raise RuntimeError("No bars left after applying start/end filters.")
+        raise RuntimeError("No bars left after applying filters.")
 
-    last_decision_ts_ms: int | None = None
-    dpath_existing = decisions_csv_path(
-        exchange=bt_exchange, symbol=cfg.symbol, timeframe=cfg.timeframe
-    )
-    last_decision_ts_ms = _read_last_ts_ms_from_decisions_csv(dpath_existing)
+    # Restart-safe decision dedupe for bt output namespace
+    dpath_existing = decisions_csv_path(exchange=bt_exchange, symbol=storage_symbol, timeframe=cfg.timeframe)
+    last_decision_ts_ms: int | None = _read_last_ts_ms_from_decisions_csv(dpath_existing)
     if last_decision_ts_ms is not None:
         logger.info(
             "Decision dedupe initialized from existing CSV",
@@ -228,7 +263,7 @@ def run_backtest(
         dpath = append_decision_csv(
             decision=decision_row,
             exchange=bt_exchange,
-            symbol=cfg.symbol,
+            symbol=storage_symbol,   # STORAGE SYMBOL (e.g. BTC_USD)
             timeframe=cfg.timeframe,
         )
         last_decision_ts_ms = ts_ms
@@ -270,22 +305,17 @@ def run_backtest(
         now_ts_ms = int(getattr(ts, "value", 0) // 1_000_000) if ts is not None else 0
         now_iso = ts.isoformat() if hasattr(ts, "isoformat") else ""
 
+        # If configured, hold broker flat until trade_start_ts_ms.
+        allow_trading = True
+        if trade_start_ts_ms is not None and now_ts_ms > 0 and int(now_ts_ms) < int(trade_start_ts_ms):
+            allow_trading = False
+
         position = broker.get_tracked_position(
-            symbol=cfg.symbol,
+            symbol=ccxt_symbol,
             latest_close=latest_close,
             latest_atr=latest_atr,
             atr_mult=float(ATR_MULT),
         )
-
-        # ---- Pending-entry guard (must match LIVE) ----
-        pending_entry = False
-        if (
-            position is not None
-            and position.entry_ts_ms is not None
-            and now_ts_ms > 0
-            and int(now_ts_ms) < int(position.entry_ts_ms)
-        ):
-            pending_entry = True
 
         decision_row = {
             "ts_ms": now_ts_ms,
@@ -315,6 +345,25 @@ def run_backtest(
             "exit_reason": "",
         }
 
+        # If we're not allowed to trade yet, we force a flat snapshot and write the row.
+        if not allow_trading:
+            _fill_position_fields(decision_row, None)
+            p = _write_decision_once_per_bar(decision_row)
+            if p:
+                last_decisions_path = p
+            bars_processed += 1
+            continue
+
+        # ---- Pending-entry guard (must match LIVE) ----
+        pending_entry = False
+        if (
+            position is not None
+            and position.entry_ts_ms is not None
+            and now_ts_ms > 0
+            and int(now_ts_ms) < int(position.entry_ts_ms)
+        ):
+            pending_entry = True
+
         _fill_position_fields(decision_row, position)
 
         if pending_entry:
@@ -328,7 +377,7 @@ def run_backtest(
         # EXIT / MANAGE POSITION
         # ------------------------
         if position is not None:
-            u_usd, u_pct = broker.get_unrealized_pnl(symbol=cfg.symbol, last_price=latest_close)
+            u_usd, u_pct = broker.get_unrealized_pnl(symbol=ccxt_symbol, last_price=latest_close)
             decision_row["unrealized_pnl_usd"] = float(u_usd)
             decision_row["unrealized_pnl_pct"] = float(u_pct)
 
@@ -348,7 +397,7 @@ def run_backtest(
                 position.stop_price is None or float(new_stop) != float(position.stop_price)
             ):
                 updated = broker.update_stop(
-                    symbol=cfg.symbol,
+                    symbol=ccxt_symbol,
                     new_stop_price=float(new_stop),
                     new_trailing_anchor_price=float(new_anchor) if new_anchor is not None else None,
                 )
@@ -369,12 +418,15 @@ def run_backtest(
             if exit_sig.should_exit:
                 exit_reason = exit_sig.reason or "exit"
 
+                # Phase 2A stop-through is BACKTEST ONLY. (PnL may differ; lifecycle should match)
                 exit_price = latest_close
                 if exit_reason == "stop_hit" and position.stop_price is not None:
-                    exit_price = float(position.stop_price)
+                    bar_open = float(market_data.iloc[-1].get("open", latest_close))
+                    stop_px = float(position.stop_price)
+                    exit_price = min(bar_open, stop_px) if position.side == "LONG" else max(bar_open, stop_px)
 
                 trade = broker.realize_and_close(
-                    symbol=cfg.symbol,
+                    symbol=ccxt_symbol,
                     exit_price=float(exit_price),
                     reason=exit_reason,
                     exit_ts_ms=now_ts_ms if now_ts_ms > 0 else None,
@@ -383,7 +435,7 @@ def run_backtest(
                 last_trades_path = append_trade_csv(
                     trade=trade,
                     exchange=bt_exchange,
-                    symbol=cfg.symbol,
+                    symbol=storage_symbol,   # STORAGE SYMBOL
                     timeframe=cfg.timeframe,
                     market_reason=market_state.reason,
                 )
@@ -400,7 +452,7 @@ def run_backtest(
         # ------------------------
         if position is None:
             remaining = broker.cooldown_remaining_bars(
-                symbol=cfg.symbol,
+                symbol=ccxt_symbol,
                 now_ts_ms=now_ts_ms,
                 expected_step_s=int(expected_step_s),
                 cooldown_bars=int(getattr(cfg, "cooldown_bars", 0)),
@@ -420,12 +472,13 @@ def run_backtest(
                         cfg.max_order_size,
                     )
 
+                    # Entries are modeled as next-bar (prevents same-bar stop hits)
                     if i + 1 < len(all_bars):
                         nxt = all_bars.iloc[i + 1]["timestamp"]
                         next_ts_ms = int(getattr(nxt, "value", 0) // 1_000_000)
-                        entry_ts_ms = next_ts_ms if next_ts_ms > 0 else (now_ts_ms + expected_step_s * 1000)
+                        entry_ts_ms = next_ts_ms if next_ts_ms > 0 else (now_ts_ms + int(expected_step_s * 1000))
                     else:
-                        entry_ts_ms = now_ts_ms + expected_step_s * 1000
+                        entry_ts_ms = now_ts_ms + int(expected_step_s * 1000)
 
                     stop_price = compute_initial_stop(
                         side=entry_sig.side,
@@ -434,19 +487,17 @@ def run_backtest(
                     )
 
                     broker.open_position(
-                        symbol=cfg.symbol,
+                        symbol=ccxt_symbol,
                         side=entry_sig.side,
                         size=size,
                         entry_price=latest_close,
                         entry_ts_ms=entry_ts_ms,
                         stop_price=stop_price,
-                        trailing_anchor_price=(
-                            latest_high if entry_sig.side == "LONG" else latest_low
-                        ),
+                        trailing_anchor_price=(latest_high if entry_sig.side == "LONG" else latest_low),
                     )
 
                     position = broker.get_tracked_position(
-                        symbol=cfg.symbol,
+                        symbol=ccxt_symbol,
                         latest_close=latest_close,
                         latest_atr=latest_atr,
                         atr_mult=float(ATR_MULT),
@@ -459,35 +510,32 @@ def run_backtest(
 
         bars_processed += 1
 
-    decisions_out = decisions_csv_path(exchange=bt_exchange, symbol=cfg.symbol, timeframe=cfg.timeframe)
-    trades_out = str(
-        Path("data")
-        / "processed"
-        / "trades"
-        / bt_exchange.lower().replace(" ", "_")
-        / cfg.symbol.strip().upper().replace("/", "_").replace(":", "_").replace(" ", "_")
-        / cfg.timeframe.strip().lower().replace(" ", "")
-        / "trades.csv"
-    )
+    decisions_out = decisions_csv_path(exchange=bt_exchange, symbol=storage_symbol, timeframe=cfg.timeframe)
+    trades_out = str(trades_csv_path(exchange=bt_exchange, symbol=storage_symbol, timeframe=cfg.timeframe))
 
     logger.info(
         "Backtest complete",
         extra={
             "runid": runid,
+            "ccxt_exchange": cfg.ccxt_exchange,
+            "data_tag": data_tag,
             "bt_exchange": bt_exchange,
             "decisions_csv": decisions_out,
             "trades_csv": trades_out,
             "bars_total": len(all_bars),
             "bars_processed": bars_processed,
+            "last_decisions_path": last_decisions_path,
+            "last_trades_path": last_trades_path,
         },
     )
 
     return BacktestResult(
         bt_exchange=bt_exchange,
-        symbol=cfg.symbol,
+        symbol=ccxt_symbol,
         timeframe=cfg.timeframe,
         bars_total=len(all_bars),
         bars_processed=bars_processed,
         decisions_csv=decisions_out,
         trades_csv=trades_out,
     )
+

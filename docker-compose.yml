@@ -11,9 +11,20 @@ services:
     env_file:
       - .env
     environment:
-      - TF_ENABLE_ONEDNN_OPTS=0
-      - TF_CPP_MIN_LOG_LEVEL=2
-      - TZ=America/Los_Angeles
+      SYMBOL: ${SYMBOL:-BTC/USD}
+      TIMEFRAME: ${TIMEFRAME:-5m}
+      CCXT_EXCHANGE: ${CCXT_EXCHANGE:-coinbase}
+      DATA_TAG: ${DATA_TAG:-coinbase_live}
+      DRY_RUN: ${DRY_RUN:-1}
+      LOOP_SLEEP_SECONDS: ${LOOP_SLEEP_SECONDS:-60}
+      MIN_BARS: ${MIN_BARS:-200}
+      MAX_ORDER_SIZE: ${MAX_ORDER_SIZE:-0.01}
+      FEE_BPS: ${FEE_BPS:-8}
+      SLIPPAGE_BPS: ${SLIPPAGE_BPS:-5}
+      COOLDOWN_BARS: ${COOLDOWN_BARS:-1}
+      TF_ENABLE_ONEDNN_OPTS: 0
+      TF_CPP_MIN_LOG_LEVEL: 2
+      TZ: America/Los_Angeles
     # Run as host user to avoid root-owned bind-mount outputs
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
@@ -35,17 +46,25 @@ services:
     env_file:
       - .env
     environment:
-      - TF_ENABLE_ONEDNN_OPTS=0
-      - TF_CPP_MIN_LOG_LEVEL=2
-      - TZ=America/Los_Angeles
-    # REQUIRED: survive crashes / daemon restarts
+      SYMBOL: ${SYMBOL:-BTC/USD}
+      TIMEFRAME: ${TIMEFRAME:-5m}
+      CCXT_EXCHANGE: ${CCXT_EXCHANGE:-coinbase}
+      DATA_TAG: ${DATA_TAG:-coinbase_live}
+      DRY_RUN: ${DRY_RUN:-1}
+      LOOP_SLEEP_SECONDS: ${LOOP_SLEEP_SECONDS:-60}
+      MIN_BARS: ${MIN_BARS:-200}
+      MAX_ORDER_SIZE: ${MAX_ORDER_SIZE:-0.01}
+      FEE_BPS: ${FEE_BPS:-8}
+      SLIPPAGE_BPS: ${SLIPPAGE_BPS:-5}
+      COOLDOWN_BARS: ${COOLDOWN_BARS:-1}
+      TF_ENABLE_ONEDNN_OPTS: 0
+      TF_CPP_MIN_LOG_LEVEL: 2
+      TZ: America/Los_Angeles
     restart: unless-stopped
-    # Run as host user to avoid root-owned bind-mount outputs
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - ./files:/work/files
       - ./data:/work/data
     working_dir: /work
     command: python -m files.main
-
 

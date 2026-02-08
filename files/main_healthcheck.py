@@ -142,7 +142,10 @@ def main() -> int:
     ts_all = [_parse_ts_ms(r.get("ts_ms")) for r in rows]
     ts = [x for x in ts_all if x > 0]
 
-    if len(ts) < max(5, args.recent_k + 2):
+    # Require a small absolute minimum, but don't fail just because history is short.
+    # A brand-new DATA_TAG namespace may only have a handful of rows at startup.
+    min_valid_required = 5
+    if len(ts) < min_valid_required:
         _emit(
             "FAIL",
             {
@@ -150,10 +153,18 @@ def main() -> int:
                 "decisions_path": dpath,
                 "tail_rows_checked": len(rows),
                 "valid_ts_count": len(ts),
+                "min_valid_required": min_valid_required,
             },
             as_json=as_json,
         )
         return 2
+
+    # Effective recent window is bounded by available diffs
+    diffs = [b - a for a, b in zip(ts, ts[1:])]
+    eff_recent_k = max(1, min(int(args.recent_k), len(diffs))) if diffs else 1
+
+    if eff_recent_k != int(args.recent_k):
+        warns.append(f"recent_k capped to available history: requested={args.recent_k} effective={eff_recent_k}")
 
     # ------------------------
     # Hard requirement: monotonic tail
@@ -169,7 +180,6 @@ def main() -> int:
     # ------------------------
     # Cadence: recent diffs; allow grace after downtime
     # ------------------------
-    diffs = [b - a for a, b in zip(ts, ts[1:])]
 
     # how many trailing diffs are perfect?
     clean_trailing = 0
@@ -179,7 +189,7 @@ def main() -> int:
         else:
             break
 
-    recent_diffs = diffs[-args.recent_k:] if args.recent_k > 0 else diffs
+    recent_diffs = diffs[-eff_recent_k:] if eff_recent_k > 0 else diffs
     recent_gaps = [
         (i, d)
         for i, d in enumerate(
@@ -222,7 +232,7 @@ def main() -> int:
         mr = (mr or "").strip()
         return any(x in mr for x in bad_markers)
 
-    recent_rows = rows[-max(args.recent_k, 1):]
+    recent_rows = rows[-max(eff_recent_k, 1):]
     bad_recent = [(r.get("market_reason") or "").strip() for r in recent_rows if is_bad(r.get("market_reason") or "")]
     bad_tail = [(r.get("market_reason") or "").strip() for r in rows if is_bad(r.get("market_reason") or "")]
 
@@ -322,5 +332,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 

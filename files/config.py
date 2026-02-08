@@ -115,8 +115,11 @@ class TradingConfig:
     loop_sleep_seconds: int
     dry_run: bool
 
-    # Data source
+    # Fetch source (ccxt)
     ccxt_exchange: str
+
+    # Storage namespace (paths)
+    data_tag: str
 
     # Safety knobs
     max_order_size: float
@@ -145,7 +148,9 @@ def load_trading_config() -> TradingConfig:
       TIMEFRAME=5m
       LOOP_SLEEP_SECONDS=30
       DRY_RUN=1
+
       CCXT_EXCHANGE=coinbase
+      DATA_TAG=coinbase              # optional; defaults to CCXT_EXCHANGE
 
       MAX_ORDER_SIZE=1.0
       SYMBOL_ALLOWLIST=BTC/USD,ETH/USD
@@ -185,6 +190,11 @@ def load_trading_config() -> TradingConfig:
     if not ccxt_exchange:
         raise ValueError("CCXT_EXCHANGE must be non-empty")
 
+    # Storage namespace: default to fetch source (backwards compatible).
+    data_tag = str(_get_env("DATA_TAG", ccxt_exchange)).strip().lower()
+    if not data_tag:
+        data_tag = ccxt_exchange
+
     fee_bps = _parse_float(
         _get_env("FEE_BPS", "8.5"),
         default=8.5,
@@ -217,6 +227,7 @@ def load_trading_config() -> TradingConfig:
         loop_sleep_seconds=loop_sleep_seconds,
         dry_run=dry_run,
         ccxt_exchange=ccxt_exchange,
+        data_tag=data_tag,
         max_order_size=max_order_size,
         symbol_allowlist=allowlist,
         min_bars=min_bars,
@@ -237,4 +248,8 @@ def load_alpaca_config() -> AlpacaConfig:
             "Set ALPACA_API_KEY and ALPACA_SECRET_KEY in .env"
         )
 
-    return AlpacaConfig(api_key=api_key, secret_key=secret_key, base_url=str(base_url))
+    return AlpacaConfig(
+        api_key=api_key,
+        secret_key=secret_key,
+        base_url=str(base_url),
+    )

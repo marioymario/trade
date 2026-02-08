@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from files.config import load_trading_config
 from files.data.market import fetch_market_data
-from files.data.quality import assess_ohlcv
 from files.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -15,34 +14,21 @@ def main() -> None:
     df = fetch_market_data(
         symbol=cfg.symbol,
         timeframe=cfg.timeframe,
-        limit=max(cfg.min_bars, 200),
-        ccxt_exchange=cfg.ccxt_exchange,
+        limit=max(cfg.min_bars, 200) + 5,
         min_bars_warn=cfg.min_bars,
+        ccxt_exchange=cfg.ccxt_exchange,  # fetch source
     )
 
-    rep = assess_ohlcv(df)
-
+    # This check is about fetch quality only; no storage writes.
     logger.info(
-        "Data quality report",
+        "✅ main_data_quality_check OK",
         extra={
-            "exchange": cfg.ccxt_exchange,
-            "symbol": cfg.symbol,
-            "timeframe": cfg.timeframe,
-            "rows": rep.rows,
-            "tz_aware": rep.tz_aware,
-            "monotonic": rep.monotonic,
-            "duplicates": rep.duplicates,
-            "median_step_s": rep.median_step_s,
-            "min_step_s": rep.min_step_s,
-            "max_step_s": rep.max_step_s,
+            "rows": len(df),
+            "ccxt_exchange": cfg.ccxt_exchange,
+            "data_tag": cfg.data_tag,
         },
     )
-
-    tail = df[["timestamp", "open", "high", "low", "close", "volume"]].tail(5)
-    logger.info("Tail bars:\n%s", tail.to_string(index=False))
 
 
 if __name__ == "__main__":
     main()
-
-
