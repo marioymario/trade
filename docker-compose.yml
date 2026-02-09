@@ -7,7 +7,7 @@ services:
     image: trade
     container_name: trade
     ports:
-      - "8888:8888"
+      - "${JUPYTER_BIND_ADDR:-127.0.0.1}:8888:8888"
     env_file:
       - .env
     environment:

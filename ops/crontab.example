@@ -1,0 +1,11 @@
+# ops/crontab.example
+# Install on TARGET user:
+#   crontab -e
+# Paste these lines (adjust repo path if different):
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+@reboot /bin/bash -lc '/home/kk7wus/Projects/trade/ops/cron_reboot.sh'
+*/10 * * * * /bin/bash -lc '/home/kk7wus/Projects/trade/ops/cron_heartbeat.sh'
