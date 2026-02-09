@@ -784,3 +784,230 @@ Just run backtest windowed:
 DATA_TAG=paper_local_check RUNID="..." START_TS_MS="..." make backtest
 
 End HANDOVER
+
+--- 
+
+HANDOFF — 2026-02-08 — old-box (Pop!_OS) live paper loop + cron + GPU + 8888 lockdown + rsync deploy
+0) What we achieved (truth)
+
+We now have old-box running the trading repo under Docker Compose with:
+
+paper service running the live paper loop (writes decisions/trades to disk)
+
+trade service for tooling/Jupyter/tests
+
+cron @reboot auto-starts the stack reliably after host reboot (GPU-first, CPU fallback)
+
+GPU in containers works (TensorFlow sees GPU; runtime verified)
+
+Port 8888 is locked down to localhost (127.0.0.1) instead of being publicly exposed
+
+We established an rsync-based deploy flow (local → target) that preserves target-only state
+
+1) Current known-good target state
+1.1 Repo location (target)
+
+Repo path on old-box:
+
+/home/kk7wus/Projects/trade
+
+1.2 Containers
+
+docker compose ps shows both services up:
+
+paper (live loop)
+
+trade (tooling / Jupyter)
+
+1.3 “Win condition” for 8888 lockdown
+
+docker compose ps for trade shows:
+
+127.0.0.1:8888->8888/tcp
+
+If it shows 0.0.0.0:8888->8888, then 8888 is exposed and needs fix (see §5).
+
+2) Contracts / invariants (LOCKED)
+2.1 Target vs repo differences must be operator state only
+
+On old-box, the intended differences vs the “source repo” are not code:
+
+Allowed target-only:
+
+Local-only .env (NOT committed), e.g. DATA_TAG, SYMBOL, TIMEFRAME, DRY_RUN, optional JUPYTER_BIND_ADDR
+
+data/ contents (raw/processed decisions/trades) — runtime state, not committed
+
+Installed crontab (scheduler state)
+
+Logs in home directory (e.g. ~/trade_reboot.log, ~/trade_heartbeat.log)
+
+Docker runtime state / container lifecycle
+
+Not allowed:
+
+“Just this one edit” on target in repo files.
+All repo edits happen locally, then deployed.
+
+2.2 Deployment discipline
+
+Local is source of truth
+
+Target is deploy + run only
+
+We use rsync to push updates to target (no git pull needed)
+
+3) Ops automation (cron + scripts)
+3.1 Repo scripts (target has ops/)
+
+/home/kk7wus/Projects/trade/ops/ contains:
+
+cron_reboot.sh — boot start, GPU-first, verify GPU usability, fallback CPU, logs to ~/trade_reboot.log
+
+cron_heartbeat.sh — periodic health proof, logs to ~/trade_heartbeat.log
+
+crontab.example, README.md
+
+3.2 Crontab (target)
+
+Target user’s crontab includes:
+
+@reboot /bin/bash -lc '/home/kk7wus/Projects/trade/ops/cron_reboot.sh'
+
+Heartbeat every 10 minutes (if enabled): cron_heartbeat.sh
+
+Old reboot line exists but is commented out:
+
+#@reboot /bin/bash -lc '/home/kk7wus/trade_boot.sh'
+
+3.3 Logs (target)
+
+Logs are in the target user’s home directory:
+
+/home/kk7wus/trade_reboot.log
+
+/home/kk7wus/trade_heartbeat.log
+
+4) 8888 lockdown (Jupyter exposure)
+4.1 What changed (compose)
+
+In docker-compose.yml under the trade service:
+
+ports:
+  - "${JUPYTER_BIND_ADDR:-127.0.0.1}:8888:8888"
+
+
+This makes host publishing default to 127.0.0.1.
+Even though Jupyter runs --ip=0.0.0.0 inside the container, the host bind address controls exposure.
+
+4.2 Verify on target
+cd /home/kk7wus/Projects/trade
+docker compose ps
+
+
+Expected:
+
+127.0.0.1:8888->8888/tcp
+
+4.3 Safe remote access pattern
+
+Use an SSH tunnel instead of exposing 8888:
+
+ssh -p <SSH_PORT> -L 8888:127.0.0.1:8888 kk7wus@10.0.0.82
+
+
+Then open http://localhost:8888 on your local machine.
+
+5) Troubleshooting quick hits
+5.1 If 8888 shows as exposed (0.0.0.0:8888)
+
+Most common causes:
+
+Target is still running old container config → needs recreate
+
+Target .env sets JUPYTER_BIND_ADDR=0.0.0.0
+
+Fix/re-apply (target):
+
+cd /home/kk7wus/Projects/trade
+docker compose up -d --force-recreate trade
+docker compose ps
+
+
+Check env override:
+
+grep -n '^JUPYTER_BIND_ADDR=' .env || true
+
+5.2 Paper loop alive proof (target)
+cd /home/kk7wus/Projects/trade
+tail -n 3 data/processed/decisions/*/*/*/decisions.csv 2>/dev/null | tail -n 20
+docker compose logs --since=15m --tail=120 paper
+
+5.3 Cron proof (target)
+crontab -l
+tail -n 120 ~/trade_reboot.log
+tail -n 120 ~/trade_heartbeat.log
+
+6) Rsync deploy flow (local → target) — no deletes
+6.1 Goal
+
+Push repo changes from local to target without overwriting:
+
+.env (target-only)
+
+data/ (target-only)
+
+6.2 Dry-run command (local)
+
+Replace <SSH_PORT> with the correct SSH port (we hit “wrong port” once; confirm before running).
+
+rsync -av --dry-run --itemize-changes --stats \
+  -e "ssh -p <SSH_PORT>" \
+  --exclude='.git/' \
+  --exclude='.env' \
+  --exclude='data/' \
+  --exclude='__pycache__/' \
+  --exclude='*.pyc' \
+  --exclude='.pytest_cache/' \
+  --exclude='.venv/' \
+  --exclude='venv/' \
+  --exclude='ops/logs/' \
+  ~/Projects/trade/ \
+  kk7wus@10.0.0.82:~/Projects/trade/
+
+6.3 Real sync (local)
+
+Same command without --dry-run.
+
+6.4 Apply changes on target (recreate trade when ports change)
+ssh -p <SSH_PORT> kk7wus@10.0.0.82 \
+  'cd ~/Projects/trade && docker compose up -d --force-recreate trade && docker compose ps'
+
+7) GPU status (summary)
+
+Host has NVIDIA GPU (nvidia-smi works)
+
+Docker GPU integration works
+
+TensorFlow in container can see GPU (previously validated)
+
+cron boot script uses GPU compose if present and falls back to CPU if GPU isn’t usable
+
+8) Next missions (queued)
+
+Stop target drift: keep target as “deploy + run,” no repo edits
+
+Optional: remove local-only helper scripts from target if they appear (target doesn’t need deploy helpers)
+
+Optional hardening: risk controls / kill switch (shortest “real-trade safety” upgrade)
+
+Optional: log rotation (prevent ~/trade_*.log growth)
+
+9) Current “done / not done” truth
+
+✅ Reboot resilience: working
+✅ Cron auto-start: working
+✅ GPU-first + CPU fallback: working
+✅ 8888 locked to localhost: verified working
+✅ Rsync deploy approach: working (dry-run + correct port + sync + recreate trade)
+⚠️ Real-money readiness: not the current goal; next step would be risk controls + reconciliation later
