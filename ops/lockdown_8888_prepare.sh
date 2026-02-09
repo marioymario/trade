@@ -12,7 +12,7 @@
 # Then:
 #   git diff
 
-#set -euo pipefail
+# set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FILE="${1:-$REPO_ROOT/docker-compose.yml}"

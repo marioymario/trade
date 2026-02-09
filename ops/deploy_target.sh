@@ -12,7 +12,8 @@
 #
 # Usage:
 #   TARGET_HOST=... TARGET_USER=... TARGET_PORT=... ./ops/deploy_target.sh
-#set -euo pipefail
+
+# set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -31,7 +32,6 @@ git push
 
 echo "=== Target: pull + restart ==="
 ssh -p "$TARGET_PORT" "${TARGET_USER}@${TARGET_HOST}" bash -lc "'
-set -euo pipefail
 cd \"$TARGET_REPO\"
 echo \"[target] repo: \$PWD\"
 git pull --ff-only
