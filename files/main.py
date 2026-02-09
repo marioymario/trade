@@ -5,6 +5,7 @@ import csv
 import os
 import time
 from collections import deque
+from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -14,7 +15,7 @@ from files.data.decisions import append_decision_csv, decisions_csv_path
 from files.data.features import compute_features, validate_latest_features
 from files.data.market import fetch_market_data
 from files.data.storage import append_ohlcv_parquet, load_recent_ohlcv_parquet
-from files.data.trades import append_trade_csv
+from files.data.trades import append_trade_csv, trades_csv_path
 from files.strategy.filters import determine_market_state
 from files.strategy.rules import (
     ATR_MULT,
@@ -27,6 +28,11 @@ from files.strategy.rules import (
 from files.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+try:
+    from zoneinfo import ZoneInfo  # py3.9+
+except Exception:
+    ZoneInfo = None  # type: ignore
 
 
 def _timeframe_to_seconds(timeframe: str) -> int:
@@ -225,6 +231,101 @@ def _is_degraded(*, recent_reasons: deque[str], internal_cadence_ok: bool) -> tu
     return False, ""
 
 
+def _parse_float_env(name: str, default: float = 0.0) -> float:
+    v = os.environ.get(name, "")
+    if v is None or str(v).strip() == "":
+        return float(default)
+    try:
+        return float(v)
+    except Exception:
+        return float(default)
+
+
+def _kill_switch_active(path: str) -> bool:
+    try:
+        return bool(path) and os.path.exists(path)
+    except Exception:
+        return False
+
+
+def _pick_ts_ms(row: dict) -> int | None:
+    for k in ("exit_ts_ms", "entry_ts_ms", "ts_ms"):
+        v = row.get(k)
+        if v is None or v == "":
+            continue
+        try:
+            return int(float(v))
+        except Exception:
+            continue
+    return None
+
+
+def _pick_pnl_usd(row: dict) -> float:
+    for k in ("realized_pnl_usd", "pnl_usd", "realized_pnl"):
+        v = row.get(k)
+        if v is None or v == "":
+            continue
+        try:
+            return float(v)
+        except Exception:
+            continue
+    return 0.0
+
+
+def _daily_limits_exceeded(
+    *,
+    trades_csv: str,
+    max_trades_per_day: float,
+    max_daily_loss_usd: float,
+    tz_name: str,
+) -> tuple[bool, str, int, float]:
+    """
+    Returns (exceeded, reason, trades_today, pnl_today_usd).
+    Disabled if both limits <= 0, or file missing.
+    """
+    max_trades = float(max_trades_per_day)
+    max_loss = float(max_daily_loss_usd)
+
+    if max_trades <= 0 and max_loss <= 0:
+        return False, "", 0, 0.0
+
+    if not trades_csv or (not os.path.exists(trades_csv)):
+        return False, "", 0, 0.0
+
+    tz = None
+    if ZoneInfo is not None:
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz = None
+
+    now = datetime.now(tz or timezone.utc)
+    start_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_ms = int(start_day.timestamp() * 1000)
+
+    trades_today = 0
+    pnl_today = 0.0
+
+    try:
+        with open(trades_csv, newline="", encoding="utf-8") as f:
+            r = csv.DictReader(f)
+            for row in r:
+                ts = _pick_ts_ms(row)
+                if ts is None or ts < start_ms:
+                    continue
+                trades_today += 1
+                pnl_today += _pick_pnl_usd(row)
+    except Exception:
+        return False, "daily_limits_read_error", 0, 0.0
+
+    if max_trades > 0 and trades_today >= int(max_trades):
+        return True, f"max_trades_per_day({trades_today}>={int(max_trades)})", trades_today, pnl_today
+    if max_loss > 0 and pnl_today <= -float(max_loss):
+        return True, f"max_daily_loss_usd({pnl_today:.2f}<=-{float(max_loss):.2f})", trades_today, pnl_today
+
+    return False, "", trades_today, pnl_today
+
+
 def main() -> None:
     cfg = load_trading_config()
 
@@ -235,6 +336,13 @@ def main() -> None:
 
     ccxt_symbol = cfg.symbol
     storage_symbol = _storage_symbol(cfg.symbol)
+
+    # In-loop guardrails (env-driven; same knobs as ops)
+    kill_switch_file = os.environ.get("KILL_SWITCH_FILE", "/tmp/TRADING_STOP")
+    tz_local = os.environ.get("TZ_LOCAL", "America/Los_Angeles")
+    max_trades_per_day = _parse_float_env("MAX_TRADES_PER_DAY", 0.0)
+    max_daily_loss_usd = _parse_float_env("MAX_DAILY_LOSS_USD", 0.0)
+    max_position_usd = _parse_float_env("MAX_POSITION_USD", 0.0)
 
     logger.info("🚀 Trading system starting")
     logger.info(
@@ -252,6 +360,11 @@ def main() -> None:
             "fee_bps": getattr(cfg, "fee_bps", None),
             "slippage_bps": getattr(cfg, "slippage_bps", None),
             "cooldown_bars": getattr(cfg, "cooldown_bars", None),
+            "KILL_SWITCH_FILE": kill_switch_file,
+            "MAX_TRADES_PER_DAY": max_trades_per_day,
+            "MAX_DAILY_LOSS_USD": max_daily_loss_usd,
+            "TZ_LOCAL": tz_local,
+            "MAX_POSITION_USD": max_position_usd,
         },
     )
 
@@ -319,6 +432,8 @@ def main() -> None:
             "store_tail_n": int(store_tail_n),
         },
     )
+
+    trades_path = trades_csv_path(exchange=data_tag, symbol=storage_symbol, timeframe=cfg.timeframe)
 
     while True:
         loop_start = time.time()
@@ -541,6 +656,22 @@ def main() -> None:
             _fill_position_fields(decision_row, position)
 
             # ------------------------
+            # IN-LOOP GUARDRAILS (block entries; still write decisions)
+            # ------------------------
+            halted_reason = ""
+            if _kill_switch_active(kill_switch_file):
+                halted_reason = f"kill_switch({kill_switch_file})"
+            else:
+                exceeded, reason, trades_today, pnl_today = _daily_limits_exceeded(
+                    trades_csv=trades_path,
+                    max_trades_per_day=max_trades_per_day,
+                    max_daily_loss_usd=max_daily_loss_usd,
+                    tz_name=tz_local,
+                )
+                if exceeded:
+                    halted_reason = f"daily_limits({reason})"
+
+            # ------------------------
             # EXIT / MANAGE POSITION
             # ------------------------
             if position is not None:
@@ -548,7 +679,9 @@ def main() -> None:
                 decision_row["unrealized_pnl_usd"] = float(u_usd)
                 decision_row["unrealized_pnl_pct"] = float(u_pct)
 
-                if not degraded_mode:
+                if halted_reason:
+                    decision_row["trail_reason"] = f"halted_freeze_trailing({halted_reason})"
+                elif not degraded_mode:
                     new_stop, new_anchor, trail_reason = compute_trailing_stop_update(
                         position=position,
                         latest_close=latest_close,
@@ -638,6 +771,14 @@ def main() -> None:
                     time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
                     continue
 
+                if halted_reason:
+                    decision_row["entry_should_enter"] = False
+                    decision_row["entry_reason"] = f"blocked_by_halt({halted_reason})"
+                    _write_decision_once_per_bar(decision_row)
+                    elapsed = time.time() - loop_start
+                    time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
+                    continue
+
                 entry_sig = evaluate_entry(features=feats, market_state=market_state)
                 decision_row["entry_should_enter"] = bool(entry_sig.should_enter)
                 decision_row["entry_side"] = entry_sig.side
@@ -649,6 +790,18 @@ def main() -> None:
                         size_position(signal=entry_sig, market_state=market_state),
                         cfg.max_order_size,
                     )
+
+                    if max_position_usd > 0.0 and latest_close > 0.0:
+                        max_qty = float(max_position_usd) / float(latest_close)
+                        size = min(float(size), float(max_qty))
+
+                    if size <= 0.0:
+                        decision_row["entry_should_enter"] = False
+                        decision_row["entry_reason"] = "blocked_by_size_cap"
+                        _write_decision_once_per_bar(decision_row)
+                        elapsed = time.time() - loop_start
+                        time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
+                        continue
 
                     # Entries are modeled as next-bar (prevents same-bar stop hits)
                     entry_ts_ms = now_ts_ms + step_ms
@@ -720,4 +873,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
