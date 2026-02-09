@@ -15,6 +15,9 @@ PROJ="${PROJ:-$REPO_ROOT}"
 LOG="${LOG:-$HOME/trade_heartbeat.log}"
 
 DOCKER="${DOCKER:-/usr/bin/docker}"
+FLOCK="${FLOCK:-/usr/bin/flock}"
+LOCK="${LOCK:-/tmp/trade_heartbeat.lock}"
+
 SERVICE_PAPER="${SERVICE_PAPER:-paper}"
 
 touch "$LOG"
@@ -29,6 +32,11 @@ echo
 echo "===== trade heartbeat ====="
 date -Is
 echo "PROJ=$PROJ"
+
+# Lock to prevent overlapping runs (cron + manual)
+[[ -x "$FLOCK" ]] || { echo "ERROR: flock missing at $FLOCK"; exit 1; }
+exec 9>"$LOCK"
+"$FLOCK" -n 9 || { echo "LOCKED: another heartbeat running"; exit 0; }
 
 # Source .env for tags + risk vars
 if [[ -f "$PROJ/.env" ]]; then

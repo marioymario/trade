@@ -32,6 +32,7 @@ HOST="$(hostname -s 2>/dev/null || hostname)"
 
 SRC1="${SRC1:-$HOME/trade_heartbeat.log}"
 SRC2="${SRC2:-$HOME/trade_reboot.log}"
+SRC3="${SRC3:-$HOME/trade_archive.log}"
 
 DEST_DIR="$ARCHIVE_ROOT/logs/$DAY"
 STATE_DIR="$ARCHIVE_ROOT/state"
@@ -46,9 +47,10 @@ echo "DEST_DIR=$DEST_DIR"
 echo "ARCHIVE_FILE=$ARCHIVE_FILE"
 echo "SRC1=$SRC1"
 echo "SRC2=$SRC2"
+echo "SRC3=$SRC3"
 echo "INCLUDE_DOCKER_LOGS=$INCLUDE_DOCKER_LOGS"
 
-touch "$SRC1" "$SRC2"
+touch "$SRC1" "$SRC2" "$SRC3"
 
 SINCE=""
 if [[ -n "${DOCKER_LOG_SINCE:-}" ]]; then
@@ -67,6 +69,7 @@ trap cleanup EXIT
 
 cp -f "$SRC1" "$STAGE/trade_heartbeat.log"
 cp -f "$SRC2" "$STAGE/trade_reboot.log"
+cp -f "$SRC3" "$STAGE/trade_archive.log"
 
 {
   date -Is
@@ -94,6 +97,7 @@ mv -f "$TMP_TAR" "$ARCHIVE_FILE"
 
 : > "$SRC1"
 : > "$SRC2"
+: > "$SRC3"
 
 date -Is > "$LAST_TS_FILE"
 
