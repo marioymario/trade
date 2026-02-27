@@ -31,6 +31,7 @@ services:
       - ./notebooks:/work/notebooks
       - ./files:/work/files
       - ./data:/work/data
+      - /home/kk7wus/trade_flags:/home/kk7wus/trade_flags
     working_dir: /work
     command: >
       jupyter lab --ip=0.0.0.0 --no-browser
@@ -65,6 +66,7 @@ services:
     volumes:
       - ./files:/work/files
       - ./data:/work/data
+      - /home/kk7wus/trade_flags:/home/kk7wus/trade_flags
     working_dir: /work
     command: python -m files.main
 
