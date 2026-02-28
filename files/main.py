@@ -1,4 +1,3 @@
-# files/main.py
 from __future__ import annotations
 
 import csv
@@ -10,10 +9,11 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from files.broker.paper import PaperBroker
+from files.broker.guarded import GuardedBroker
 from files.config import load_trading_config
 from files.data.decisions import append_decision_csv, decisions_csv_path
 from files.data.features import compute_features, validate_latest_features
-from files.data.market import fetch_market_data
+from files.data.market import fetch_market_data, MarketFetchError
 from files.data.storage import append_ohlcv_parquet, load_recent_ohlcv_parquet
 from files.data.trades import append_trade_csv, trades_csv_path
 from files.strategy.filters import determine_market_state
@@ -241,7 +241,7 @@ def _parse_float_env(name: str, default: float = 0.0) -> float:
         return float(default)
 
 
-def _kill_switch_active(path: str) -> bool:
+def _exists(path: str) -> bool:
     try:
         return bool(path) and os.path.exists(path)
     except Exception:
@@ -338,11 +338,14 @@ def main() -> None:
     storage_symbol = _storage_symbol(cfg.symbol)
 
     # In-loop guardrails (env-driven; same knobs as ops)
-    kill_switch_file = os.environ.get("KILL_SWITCH_FILE", "/tmp/TRADING_STOP")
+    kill_switch_file = os.environ.get("KILL_SWITCH_FILE", "/tmp/TRADING_STOP").strip()
+    halt_orders_file = os.environ.get("HALT_ORDERS_FILE", "").strip()
     tz_local = os.environ.get("TZ_LOCAL", "America/Los_Angeles")
     max_trades_per_day = _parse_float_env("MAX_TRADES_PER_DAY", 0.0)
     max_daily_loss_usd = _parse_float_env("MAX_DAILY_LOSS_USD", 0.0)
     max_position_usd = _parse_float_env("MAX_POSITION_USD", 0.0)
+
+    broker_kind = os.environ.get("BROKER", "paper").strip().lower()  # paper | alpaca
 
     logger.info("🚀 Trading system starting")
     logger.info(
@@ -360,7 +363,9 @@ def main() -> None:
             "fee_bps": getattr(cfg, "fee_bps", None),
             "slippage_bps": getattr(cfg, "slippage_bps", None),
             "cooldown_bars": getattr(cfg, "cooldown_bars", None),
+            "BROKER": broker_kind,
             "KILL_SWITCH_FILE": kill_switch_file,
+            "HALT_ORDERS_FILE": halt_orders_file,
             "MAX_TRADES_PER_DAY": max_trades_per_day,
             "MAX_DAILY_LOSS_USD": max_daily_loss_usd,
             "TZ_LOCAL": tz_local,
@@ -368,11 +373,21 @@ def main() -> None:
         },
     )
 
-    broker = PaperBroker(
-        dry_run=cfg.dry_run,
-        fee_bps=getattr(cfg, "fee_bps", 0.0),
-        slippage_bps=getattr(cfg, "slippage_bps", 0.0),
-    )
+    # ---- Broker selection + guard wrapper ----
+    require_armed_for_entries = False
+    if broker_kind == "alpaca":
+        from files.broker.alpaca import AlpacaBroker  # local import so paper runs without alpaca deps
+
+        inner = AlpacaBroker()
+        require_armed_for_entries = True
+    else:
+        inner = PaperBroker(
+            dry_run=cfg.dry_run,
+            fee_bps=getattr(cfg, "fee_bps", 0.0),
+            slippage_bps=getattr(cfg, "slippage_bps", 0.0),
+        )
+
+    broker = GuardedBroker(inner, require_armed_for_entries=require_armed_for_entries)
 
     expected_step_s = _timeframe_to_seconds(cfg.timeframe)
     step_ms = int(expected_step_s * 1000)
@@ -445,13 +460,24 @@ def main() -> None:
             # ------------------------
             # FETCH + PERSIST
             # ------------------------
-            fetched = fetch_market_data(
+            try:
+                fetched = fetch_market_data(
                 symbol=ccxt_symbol,
                 timeframe=cfg.timeframe,
                 limit=int(fetch_limit),
                 min_bars_warn=cfg.min_bars,
                 ccxt_exchange=cfg.ccxt_exchange,  # FETCH SOURCE
-            )
+                )
+            except MarketFetchError as e:
+                mr = 'fetch_failed'
+                logger.warning('Market fetch failed; skipping loop', extra={'symbol': ccxt_symbol, 'timeframe': cfg.timeframe, 'error': repr(e)})
+                drow = _blank_decision_row(ts_ms=now_ts_ms, now_iso=now_iso, bar_high=bar_high, bar_low=bar_low)
+                drow['market_reason'] = mr
+                _fill_position_fields(drow, position)
+                _write_decision_once_per_bar(drow)
+                recent_reasons.append(mr)
+                time.sleep(cfg.loop_sleep_seconds)
+                continue
             fetched = _normalize_df(fetched)
             fetched = _drop_in_progress_last_bar_if_safe(fetched, min_bars=cfg.min_bars)
 
@@ -659,8 +685,10 @@ def main() -> None:
             # IN-LOOP GUARDRAILS (block entries; still write decisions)
             # ------------------------
             halted_reason = ""
-            if _kill_switch_active(kill_switch_file):
+            if _exists(kill_switch_file):
                 halted_reason = f"kill_switch({kill_switch_file})"
+            elif _exists(halt_orders_file):
+                halted_reason = f"halt_orders({halt_orders_file})"
             else:
                 exceeded, reason, trades_today, pnl_today = _daily_limits_exceeded(
                     trades_csv=trades_path,
