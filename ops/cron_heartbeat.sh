@@ -1,148 +1,153 @@
 #!/usr/bin/env bash
-# ops/cron_heartbeat.sh
+set -euo pipefail
 
-set -u
+LOG="${HOME}/trade_heartbeat.log"
+LOCK="/tmp/trade_heartbeat.lock"
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJ="${PROJ:-$REPO_ROOT}"
-LOG="${LOG:-$HOME/trade_heartbeat.log}"
-
-DOCKER="${DOCKER:-/usr/bin/docker}"
-FLOCK="${FLOCK:-/usr/bin/flock}"
-LOCK="${LOCK:-/tmp/trade_heartbeat.lock}"
-
-SERVICE_PAPER="${SERVICE_PAPER:-paper}"
-
-# Flag dir + defaults (keep everything in one place)
-FLAGS_DIR="${FLAGS_DIR:-/home/kk7wus/trade_flags}"
-mkdir -p "$FLAGS_DIR" 2>/dev/null || true
-
-touch "$LOG"
-exec >>"$LOG" 2>&1
-
-compose() {
-  cd "$PROJ" || return 1
-  "$DOCKER" compose --project-directory "$PROJ" "$@"
-}
-
-echo
-echo "===== trade heartbeat ====="
-date -Is
-echo "PROJ=$PROJ"
-
-# Lock to prevent overlapping runs (cron + manual)
-[[ -x "$FLOCK" ]] || { echo "ERROR: flock missing at $FLOCK"; exit 1; }
-exec 9>"$LOCK"
-"$FLOCK" -n 9 || { echo "LOCKED: another heartbeat running"; exit 0; }
-
-# Load a small allowlist from .env (avoid UID= which is readonly in bash)
+# Allowlist .env loader (safe: only exports explicitly allowed keys)
 load_env_allowlist() {
-  local f="$1"
-  [[ -f "$f" ]] || return 0
-  local line k v
+  local env_file="$1"
+  [[ -f "$env_file" ]] || return 0
+
+  local allow="^(DATA_TAG|SYMBOL|TIMEFRAME|DRY_RUN|FLAGS_DIR|KILL_SWITCH_FILE|HALT_ORDERS_FILE|ARM_FILE)=$"
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" ]] && continue
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    k="${line%%=*}"
-    v="${line#*=}"
-    k="${k//[[:space:]]/}"
-    v="${v%$'\r'}"
-    if [[ "$v" == \"*\" && "$v" == *\" ]]; then v="${v:1:${#v}-2}"; fi
-    if [[ "$v" == \'*\' && "$v" == *\' ]]; then v="${v:1:${#v}-2}"; fi
-    case "$k" in
-      DATA_TAG|SYMBOL|TIMEFRAME|CCXT_EXCHANGE|DRY_RUN|ARMED|TZ_LOCAL|KILL_SWITCH_FILE|HALT_ORDERS_FILE|MAX_TRADES_PER_DAY|MAX_DAILY_LOSS_USD|ARM_FILE|FLAGS_DIR)
-        export "$k=$v"
-        ;;
-    esac
-  done <"$f"
-}
-load_env_allowlist "$PROJ/.env"
+    # trim leading/trailing spaces
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
 
-# Defaults (match what you were testing)
-KILL_SWITCH_FILE="${KILL_SWITCH_FILE:-$FLAGS_DIR/STOP}"
-HALT_ORDERS_FILE="${HALT_ORDERS_FILE:-$FLAGS_DIR/HALT}"
-ARM_FILE="${ARM_FILE:-$FLAGS_DIR/ARM}"
+    local key="${line%%=*}"
+    local val="${line#*=}"
 
-MAX_TRADES_PER_DAY="${MAX_TRADES_PER_DAY:-0}"   # 0 disables
-MAX_DAILY_LOSS_USD="${MAX_DAILY_LOSS_USD:-0}"   # 0 disables
-TZ_LOCAL="${TZ_LOCAL:-America/Los_Angeles}"
+    # strip surrounding quotes if present
+    if [[ "$val" =~ ^\".*\"$ ]]; then val="${val:1:${#val}-2}"; fi
+    if [[ "$val" =~ ^\'.*\'$ ]]; then val="${val:1:${#val}-2}"; fi
 
-DATA_TAG="${DATA_TAG:-paper_oldbox_live}"
-SYMBOL="${SYMBOL:-BTC_USD}"
-TIMEFRAME="${TIMEFRAME:-5m}"
-
-SYMBOL_PATH="${SYMBOL//\//_}"
-SYMBOL_PATH="${SYMBOL_PATH//-/_}"
-
-DECISIONS="$PROJ/data/processed/decisions/${DATA_TAG}/${SYMBOL_PATH}/${TIMEFRAME}/decisions.csv"
-TRADES_CSV="$PROJ/data/processed/trades/${DATA_TAG}/${SYMBOL_PATH}/${TIMEFRAME}/trades.csv"
-
-halt_only() {
-  local reason="$1"
-  echo "HALTED: $reason"
-  echo "HALT_ORDERS_FILE=$HALT_ORDERS_FILE"
-  mkdir -p "$(dirname "$HALT_ORDERS_FILE")" 2>/dev/null || true
-  : >"$HALT_ORDERS_FILE" 2>/dev/null || touch "$HALT_ORDERS_FILE" 2>/dev/null || true
-}
-
-# Kill switch => HALT only (do NOT stop paper)
-if [[ -e "$KILL_SWITCH_FILE" ]]; then
-  echo "KILL_SWITCH present: $KILL_SWITCH_FILE (halting orders; not stopping paper)"
-  halt_only "kill_switch"
-else
-  # Daily limits check (rc=2 means limit exceeded)
-  python3 "$PROJ/ops/daily_limits_check.py" \
-    --trades-csv "$TRADES_CSV" \
-    --max-trades-per-day "$MAX_TRADES_PER_DAY" \
-    --max-daily-loss-usd "$MAX_DAILY_LOSS_USD" \
-    --tz "$TZ_LOCAL" || {
-      rc=$?
-      if [[ "$rc" == "2" ]]; then
-        halt_only "daily limits exceeded"
-      else
-        echo "WARN: daily limits check error rc=$rc (not halting)"
-      fi
-    }
-fi
-
-# Proof-of-life output
-compose ps || true
-
-if [[ -f "$DECISIONS" ]]; then
-  echo "--- decisions last row ($DECISIONS) ---"
-  tail -n 1 "$DECISIONS" || true
-else
-  echo "WARN: decisions file missing: $DECISIONS"
-fi
-
-echo "--- paper logs (last 15m, tail 30) ---"
-compose logs --since=15m --tail=30 "$SERVICE_PAPER" || true
-
-# Status beacon for dashboard (read-only consumer)
-STATUS_FILE="$FLAGS_DIR/status.txt"
-{
-  echo "ts_utc=$(date -Is)"
-  echo "paper_status=$(compose ps --status running --services | grep -qx paper && echo up || echo down)"
-  echo "trade_status=$(compose ps --status running --services | grep -qx trade && echo up || echo down)"
-  echo "dashboard_status=$(compose ps --status running --services | grep -qx dashboard && echo up || echo down)"
-  echo "STOP=$( [[ -e "$KILL_SWITCH_FILE" ]] && echo ON || echo off )"
-  echo "HALT=$( [[ -e "$HALT_ORDERS_FILE" ]] && echo ON || echo off )"
-  echo "ARM=$( [[ -e "$ARM_FILE" ]] && echo ON || echo off )"
-
-  SYMBOL_PATH_STATUS="${SYMBOL//\//_}"
-  SYMBOL_PATH_STATUS="${SYMBOL_PATH_STATUS//-/_}"
-  DECISIONS_STATUS="$PROJ/data/processed/decisions/${DATA_TAG}/${SYMBOL_PATH_STATUS}/${TIMEFRAME}/decisions.csv"
-
-  if [[ -f "$DECISIONS_STATUS" ]]; then
-    ts="$(stat -c %Y "$DECISIONS_STATUS" 2>/dev/null || true)"
-    if [[ -n "$ts" ]]; then
-      echo "decisions_mtime_utc=$(date -d "@$ts" -Is 2>/dev/null || true)"
-    else
-      echo "decisions_mtime_utc="
+    if [[ "${key}=" =~ $allow ]]; then
+      export "${key}=${val}"
     fi
-  else
-    echo "decisions_mtime_utc="
-  fi
-} >"$STATUS_FILE" || echo "WARN: failed to write $STATUS_FILE"
+  done < "$env_file"
+}
 
-echo "===== done ====="
+as_utc() {
+  local epoch="$1"
+  date -u -d "@${epoch}" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "na"
+}
+
+svc_is_up() {
+  local svc="$1"
+  # Prefer structured output if available
+  if docker compose ps --format json >/dev/null 2>&1; then
+    docker compose ps --format json \
+      | grep -q "\"Service\":\"${svc}\"" \
+      && docker compose ps --format json \
+        | awk -v s="\"Service\":\"${svc}\"" -v st="\"State\":\"running\"" '
+            $0 ~ s {found=1}
+            found && $0 ~ st {print "up"; exit 0}
+            END {exit 1}
+          ' >/dev/null 2>&1 \
+      && { echo "up"; return 0; }
+    echo "down"; return 0
+  fi
+
+  # Fallback parsing
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -qx "${svc}"; then
+    echo "up"
+  else
+    echo "down"
+  fi
+}
+
+(
+  flock -n 9 || exit 0
+
+  exec >>"$LOG" 2>&1
+  echo "===== trade heartbeat ====="
+  date -Is
+  echo "pwd=$(pwd)"
+  echo
+
+  # Move to repo root if invoked from elsewhere
+  PROJ="${HOME}/Projects/trade"
+  cd "$PROJ" || exit 1
+
+  # Load safe env vars
+  load_env_allowlist "$PROJ/.env"
+
+  # Defaults (portable)
+  : "${FLAGS_DIR:=${HOME}/trade_flags}"
+  : "${DATA_TAG:=paper_oldbox_live}"
+  : "${SYMBOL:=BTC_USD}"
+  : "${TIMEFRAME:=5m}"
+
+  SYMBOL_PATH="${SYMBOL////_}"
+
+  # Respect existing per-file overrides if provided; otherwise derive from FLAGS_DIR
+  : "${KILL_SWITCH_FILE:=${FLAGS_DIR}/STOP}"
+  : "${HALT_ORDERS_FILE:=${FLAGS_DIR}/HALT}"
+  : "${ARM_FILE:=${FLAGS_DIR}/ARM}"
+
+  STATUS_FILE="${FLAGS_DIR}/status.txt"
+  mkdir -p "$FLAGS_DIR"
+
+  # Compose status snapshot
+  echo "=== docker compose ps ==="
+  docker compose ps || true
+  echo
+
+  # Decisions path (convention)
+  DECISIONS_CSV="$PROJ/data/processed/decisions/${DATA_TAG}/${SYMBOL_PATH}/${TIMEFRAME}/decisions.csv"
+
+  echo "=== decisions.csv ==="
+  echo "decisions_csv=${DECISIONS_CSV}"
+  if [[ -f "$DECISIONS_CSV" ]]; then
+    csv_epoch="$(stat -c %Y "$DECISIONS_CSV" 2>/dev/null || echo 0)"
+    csv_mtime_utc="$(as_utc "$csv_epoch")"
+    echo "decisions_mtime_utc=${csv_mtime_utc}"
+    tail -n 1 "$DECISIONS_CSV" || true
+  else
+    csv_mtime_utc="na"
+    echo "decisions_mtime_utc=na"
+    echo "decisions_csv_missing=1"
+  fi
+  echo
+
+  echo "=== paper logs (since 15m) ==="
+  docker compose logs --since 15m --tail 200 paper 2>/dev/null || true
+  echo
+
+  # Flags
+  STOP="off"; [[ -f "$KILL_SWITCH_FILE" ]] && STOP="ON"
+  HALT="off"; [[ -f "$HALT_ORDERS_FILE" ]] && HALT="ON"
+  ARM="off";  [[ -f "$ARM_FILE" ]] && ARM="ON"
+
+  # Service statuses
+  paper_status="$(svc_is_up paper)"
+  trade_status="$(svc_is_up trade)"
+  dashboard_status="$(svc_is_up dashboard)"
+
+  # Write beacon atomically
+  now_epoch="$(date -u +%s)"
+  now_utc="$(as_utc "$now_epoch")"
+  tmp="${STATUS_FILE}.tmp.$$"
+
+  {
+    echo "format_version=1"
+    echo "ts_utc=${now_utc}"
+    echo "paper_status=${paper_status}"
+    echo "trade_status=${trade_status}"
+    echo "dashboard_status=${dashboard_status}"
+    echo "STOP=${STOP}"
+    echo "HALT=${HALT}"
+    echo "ARM=${ARM}"
+    echo "decisions_mtime_utc=${csv_mtime_utc}"
+  } > "$tmp"
+  mv -f "$tmp" "$STATUS_FILE"
+
+  echo "=== status beacon ==="
+  stat -c 'status_mtime=%y size=%s path=%n' "$STATUS_FILE" 2>/dev/null || true
+  tail -n 20 "$STATUS_FILE" || true
+  echo
+) 9>"$LOCK"
