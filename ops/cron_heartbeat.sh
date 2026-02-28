@@ -33,7 +33,7 @@ load_env_allowlist() {
 
 as_utc() {
   local epoch="$1"
-  date -u -d "@${epoch}" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "na"
+  date -u -d "@${epoch}" -Is 2>/dev/null | sed 's/+00:00/Z/' || echo "na"
 }
 
 svc_is_up() {
@@ -130,7 +130,7 @@ svc_is_up() {
 
   # Write beacon atomically
   now_epoch="$(date -u +%s)"
-  now_utc="$(as_utc "$now_epoch")"
+  now_utc="$(date -u -Is | sed 's/+00:00/Z/')"
   tmp="${STATUS_FILE}.tmp.$$"
 
   {
