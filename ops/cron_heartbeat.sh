@@ -38,22 +38,7 @@ as_utc() {
 
 svc_is_up() {
   local svc="$1"
-  # Prefer structured output if available
-  if docker compose ps --format json >/dev/null 2>&1; then
-    docker compose ps --format json \
-      | grep -q "\"Service\":\"${svc}\"" \
-      && docker compose ps --format json \
-        | awk -v s="\"Service\":\"${svc}\"" -v st="\"State\":\"running\"" '
-            $0 ~ s {found=1}
-            found && $0 ~ st {print "up"; exit 0}
-            END {exit 1}
-          ' >/dev/null 2>&1 \
-      && { echo "up"; return 0; }
-    echo "down"; return 0
-  fi
-
-  # Fallback parsing
-  if docker compose ps --services --filter status=running 2>/dev/null | grep -qx "${svc}"; then
+  if docker inspect -f '{{.State.Running}}' "$svc" 2>/dev/null | grep -qx true; then
     echo "up"
   else
     echo "down"

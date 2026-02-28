@@ -2,10 +2,10 @@
 Description=Run trade heartbeat every 2 minutes
 
 [Timer]
-OnBootSec=30s
-OnUnitActiveSec=2min
+OnCalendar=*:0/2
 AccuracySec=10s
 Persistent=true
+Unit=trade-heartbeat.service
 
 [Install]
 WantedBy=timers.target
