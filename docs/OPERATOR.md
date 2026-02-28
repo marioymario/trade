@@ -1,6 +1,6 @@
-# OPERATOR GUIDE — v0.2.1
+# OPERATOR GUIDE — v0.2.2
 
-This document is a **command-only, failure-oriented guide** for operating the system.
+This is a **command-only, failure-oriented guide** for operating the system.
 If something is wrong, start at the top and work downward.
 
 ---
@@ -8,131 +8,208 @@ If something is wrong, start at the top and work downward.
 ## 0) Preconditions (do not skip)
 
 From repo root:
+
 ```bash
-`pwd``
-
-Must be the project root containing:
-
-    docker-compose.yml
-
-    files/
-
-    data/
+pwd
+ls -la docker-compose.yml files ops
+```
 
 Docker must be running:
 
+```bash
 docker info >/dev/null && echo "docker ok"
+```
 
-1) Health check (FIRST THING TO RUN)
-1.1 Containers up
+---
 
-docker compose ps
+## 1) Fastest truth: status beacon (FIRST THING TO RUN)
 
-Expected:
+### 1.1 Read beacon
 
-    paper → Up
-
-    trade → Up
-
-If either is missing or restarting → stop here.
-1.2 LIVE loop alive (paper)
-
-docker compose logs --tail=50 paper
-
-You must see recent timestamps and messages like:
-
-    Trading system starting
-
-    Fetched market data
-
-    Persisted bars
-
-    Decision recorded
-
-If logs stop advancing → LIVE is stalled.
-1.3 No permission errors (CRITICAL)
-
-docker compose logs --tail=200 paper | grep -i "permission" || echo "no permission errors"
+```bash
+tail -n 20 "${FLAGS_DIR:-$HOME/trade_flags}/status.txt"
+```
 
 Expected:
+- `format_version=1`
+- `ts_utc=...Z` advances every ~2 minutes
+- `paper_status=up`, `trade_status=up`, `dashboard_status=up`
+- `decisions_mtime_utc=...Z` advances on bar cadence (e.g. ~5m)
 
-no permission errors
+If beacon is stale or missing → go to section **2**.
 
-If you see PermissionError:
+### 1.2 Confirm beacon file is updating
 
-    STOP
+```bash
+stat -c 'status_mtime=%y size=%s' "${FLAGS_DIR:-$HOME/trade_flags}/status.txt"
+```
 
-    Do not trust data written after that point
+---
 
-1.4 Decision stream growing
+## 2) systemd (ops hardening) — required for “boring reboots”
 
-tail -n 5 data/processed/decisions/coinbase/BTC_USD/5m/decisions.csv
+We run via **user systemd**:
+- `trade-stack.service` starts `docker compose up -d` at boot
+- `trade-heartbeat.timer` runs heartbeat every 2 minutes
+
+### 2.1 Ensure linger is enabled (so timers run after reboot unattended)
+
+Run once (on the target machine):
+
+```bash
+sudo loginctl enable-linger "$USER"
+```
 
 Verify:
 
-    ts_ms increases in fixed 5m steps (300000 ms)
+```bash
+loginctl show-user "$USER" -p Linger
+```
 
-    New rows appear over time
+Expected: `Linger=yes`
 
-2) Structural invariants (quick sanity)
-2.1 Monotonic decision timestamps
+### 2.2 Check systemd units
 
-docker compose run --rm trade python - <<'PY'
-import csv
-p="data/processed/decisions/coinbase/BTC_USD/5m/decisions.csv"
-ts=[]
-with open(p) as f:
-    r=csv.DictReader(f)
-    for row in r:
-        ts.append(int(float(row["ts_ms"])))
-bad=[(a,b) for a,b in zip(ts,ts[1:]) if b<=a]
-print("rows:",len(ts))
-print("violations:",bad[:5])
-PY
+```bash
+systemctl --user status trade-stack.service --no-pager
+systemctl --user status trade-heartbeat.timer --no-pager
+```
 
 Expected:
+- `trade-stack.service`: `Active: active (exited)` and last start `SUCCESS`
+- `trade-heartbeat.timer`: `Active: active (waiting)` with a real `Trigger:` time (not `n/a`)
 
-violations: []
+### 2.3 If heartbeat timer is broken (Trigger: n/a)
 
-2.2 Cadence gaps (5m bars)
+Fix by switching to a calendar schedule:
 
-docker compose run --rm trade python - <<'PY'
-import csv
-p="data/processed/decisions/coinbase/BTC_USD/5m/decisions.csv"
-step=300000
-ts=[]
-with open(p) as f:
-    r=csv.DictReader(f)
-    for row in r:
-        ts.append(int(float(row["ts_ms"])))
-ts=sorted(set(ts))
-gaps=[(a,b,b-a) for a,b in zip(ts,ts[1:]) if b-a!=step]
-print("gap_count:",len(gaps))
-print("first_gaps:",gaps[:5])
+```bash
+cat > ~/.config/systemd/user/trade-heartbeat.timer <<'EOF'
+[Unit]
+Description=Run trade heartbeat every 2 minutes
+
+[Timer]
+OnCalendar=*:0/2
+AccuracySec=10s
+Persistent=true
+Unit=trade-heartbeat.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user restart trade-heartbeat.timer
+systemctl --user status trade-heartbeat.timer --no-pager
+```
+
+---
+
+## 3) Health check: containers + loop
+
+### 3.1 Containers up
+
+```bash
+docker compose ps
+```
+
+Expected: `paper`, `trade`, `dashboard` are Up.
+
+### 3.2 Paper loop alive (recent logs)
+
+```bash
+docker compose logs --tail=80 paper
+```
+
+You must see recent timestamps and messages consistent with:
+- startup
+- market fetch
+- persistence
+- decisions being written
+
+If logs stop advancing → LIVE is stalled.
+
+### 3.3 Permission errors (CRITICAL)
+
+```bash
+docker compose logs --tail=400 paper | grep -i "permission" || echo "no permission errors"
+```
+
+If you see `PermissionError`:
+- STOP
+- do not trust outputs written after that point
+
+---
+
+## 4) Decision stream sanity (LIVE)
+
+Decisions path is derived from env. Common vars:
+- `DATA_TAG` (e.g. `paper_oldbox_live`)
+- `SYMBOL` (e.g. `BTC_USD` or `BTC/USD`)
+- `TIMEFRAME` (e.g. `5m`)
+
+Heartbeat normalizes symbol path `BTC/USD -> BTC_USD` for filesystem layout.
+
+### 4.1 Locate decisions.csv on the machine
+
+```bash
+PROJ="$HOME/Projects/trade"
+cd "$PROJ" || exit 1
+python - <<'PY'
+import os
+data_tag=os.getenv("DATA_TAG","paper_oldbox_live")
+symbol=os.getenv("SYMBOL","BTC_USD").replace("/","_")
+tf=os.getenv("TIMEFRAME","5m")
+p=f"data/processed/decisions/{data_tag}/{symbol}/{tf}/decisions.csv"
+print(p)
 PY
+```
 
-Expected:
+### 4.2 Check last row and mtime
 
-gap_count: 0
+```bash
+D="$(python - <<'PY'
+import os
+data_tag=os.getenv("DATA_TAG","paper_oldbox_live")
+symbol=os.getenv("SYMBOL","BTC_USD").replace("/","_")
+tf=os.getenv("TIMEFRAME","5m")
+print(f"data/processed/decisions/{data_tag}/{symbol}/{tf}/decisions.csv")
+PY
+)"
+stat -c 'csv_mtime=%y size=%s path=%n' "$D"
+tail -n 1 "$D"
+```
 
-3) Control commands
-3.1 Start LIVE
+---
 
+## 5) Control commands
+
+### 5.1 Start LIVE
+
+```bash
 docker compose up -d
 docker compose logs -f paper
+```
 
-3.2 Stop LIVE cleanly
+### 5.2 Stop LIVE cleanly
 
+```bash
 docker compose down
+```
 
-3.3 Restart LIVE only
+### 5.3 Restart LIVE only
 
+```bash
 docker compose restart paper
+```
 
 LIVE must resume without duplicating decisions.
-4) BACKTEST execution
-4.1 Run windowed BACKTEST
 
+---
+
+## 6) Backtest execution (windowed)
+
+```bash
 RUNID="bt_$(date +%Y%m%d_%H%M%S)"
 START_TS_MS="PASTE_START_TS_MS"
 END_TS_MS="PASTE_END_TS_MS"
@@ -141,47 +218,56 @@ START_TS_MS="$START_TS_MS" \
 END_TS_MS="$END_TS_MS" \
 RUNID="$RUNID" \
 make backtest
+```
 
-BACKTEST output goes to:
+Outputs:
+- `data/processed/decisions/*bt_${RUNID}*/`
+- `data/processed/trades/*bt_${RUNID}*/`
 
-data/processed/decisions/coinbase_bt_${RUNID}/
-data/processed/trades/coinbase_bt_${RUNID}/
+---
 
-5) Equivalence validation
+## 7) Equivalence validation
 
+```bash
 docker compose run --rm trade python -m files.main_live_vs_backtest_equivalence \
   --symbol BTC_USD \
   --timeframe 5m \
-  --live-tag coinbase \
+  --live-tag "${DATA_TAG:-paper_oldbox_live}" \
   --bt-tag "coinbase_bt_${RUNID}"
+```
 
 Expected:
+- `[decisions] PASS`
+- `[trades] PASS`
+- `OVERALL PASS`
 
-[decisions] PASS
-[trades]    PASS
-OVERALL PASS
+---
 
-6) Failure modes & meaning
-Symptom	Meaning
-Missing decisions	LIVE was down
-PermissionError	Filesystem ownership bug
-Non-monotonic ts_ms	Invariant violation
-PnL mismatch only	Expected (Phase 2A)
-Equivalence fail	Stop — investigate
-7) What NOT to do (operator rules)
+## 8) Failure modes & meaning (operator table)
 
-    Do not edit CSVs manually
+Symptom | Meaning
+---|---
+Beacon stale | heartbeat not running; check systemd timer + linger
+Containers down | stack not started; check trade-stack.service and docker
+PermissionError | filesystem ownership bug; stop and investigate
+Non-monotonic ts_ms | invariant violation
+PnL mismatch only | expected (Phase 2A)
+Equivalence fail | stop — investigate
 
-    Do not delete rows to “fix” gaps
+---
 
-    Do not mix LIVE and BT outputs
+## 9) What NOT to do (operator rules)
 
-    Do not judge correctness by PnL
+- Do not edit CSVs manually
+- Do not delete rows to “fix” gaps
+- Do not mix LIVE and BT outputs
+- Do not judge correctness by PnL
 
-8) Golden rule
+---
+
+## 10) Golden rule
 
 If unsure:
-
-    Trust the invariants, not the outcomes.
+- Trust the invariants, not the outcomes.
 
 Correctness first. Speed second.
