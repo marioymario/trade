@@ -338,8 +338,11 @@ def main() -> None:
     storage_symbol = _storage_symbol(cfg.symbol)
 
     # In-loop guardrails (env-driven; same knobs as ops)
+    flags_dir = os.environ.get("FLAGS_DIR", f"{os.path.expanduser('~')}/trade_flags").strip()
     kill_switch_file = os.environ.get("KILL_SWITCH_FILE", "/tmp/TRADING_STOP").strip()
     halt_orders_file = os.environ.get("HALT_ORDERS_FILE", "").strip()
+    arm_file = os.environ.get("ARM_FILE", "").strip() or f"{flags_dir}/ARM"
+
     tz_local = os.environ.get("TZ_LOCAL", "America/Los_Angeles")
     max_trades_per_day = _parse_float_env("MAX_TRADES_PER_DAY", 0.0)
     max_daily_loss_usd = _parse_float_env("MAX_DAILY_LOSS_USD", 0.0)
@@ -364,8 +367,10 @@ def main() -> None:
             "slippage_bps": getattr(cfg, "slippage_bps", None),
             "cooldown_bars": getattr(cfg, "cooldown_bars", None),
             "BROKER": broker_kind,
+            "FLAGS_DIR": flags_dir,
             "KILL_SWITCH_FILE": kill_switch_file,
             "HALT_ORDERS_FILE": halt_orders_file,
+            "ARM_FILE": arm_file,
             "MAX_TRADES_PER_DAY": max_trades_per_day,
             "MAX_DAILY_LOSS_USD": max_daily_loss_usd,
             "TZ_LOCAL": tz_local,
@@ -462,22 +467,26 @@ def main() -> None:
             # ------------------------
             try:
                 fetched = fetch_market_data(
-                symbol=ccxt_symbol,
-                timeframe=cfg.timeframe,
-                limit=int(fetch_limit),
-                min_bars_warn=cfg.min_bars,
-                ccxt_exchange=cfg.ccxt_exchange,  # FETCH SOURCE
+                    symbol=ccxt_symbol,
+                    timeframe=cfg.timeframe,
+                    limit=int(fetch_limit),
+                    min_bars_warn=cfg.min_bars,
+                    ccxt_exchange=cfg.ccxt_exchange,  # FETCH SOURCE
                 )
             except MarketFetchError as e:
-                mr = 'fetch_failed'
-                logger.warning('Market fetch failed; skipping loop', extra={'symbol': ccxt_symbol, 'timeframe': cfg.timeframe, 'error': repr(e)})
+                mr = "fetch_failed"
+                logger.warning(
+                    "Market fetch failed; skipping loop",
+                    extra={"symbol": ccxt_symbol, "timeframe": cfg.timeframe, "error": repr(e)},
+                )
                 drow = _blank_decision_row(ts_ms=now_ts_ms, now_iso=now_iso, bar_high=bar_high, bar_low=bar_low)
-                drow['market_reason'] = mr
+                drow["market_reason"] = mr
                 _fill_position_fields(drow, position)
                 _write_decision_once_per_bar(drow)
                 recent_reasons.append(mr)
                 time.sleep(cfg.loop_sleep_seconds)
                 continue
+
             fetched = _normalize_df(fetched)
             fetched = _drop_in_progress_last_bar_if_safe(fetched, min_bars=cfg.min_bars)
 
@@ -699,6 +708,10 @@ def main() -> None:
                 if exceeded:
                     halted_reason = f"daily_limits({reason})"
 
+            arm_block_reason = ""
+            if not _exists(arm_file):
+                arm_block_reason = f"not_armed({arm_file})"
+
             # ------------------------
             # EXIT / MANAGE POSITION
             # ------------------------
@@ -802,6 +815,14 @@ def main() -> None:
                 if halted_reason:
                     decision_row["entry_should_enter"] = False
                     decision_row["entry_reason"] = f"blocked_by_halt({halted_reason})"
+                    _write_decision_once_per_bar(decision_row)
+                    elapsed = time.time() - loop_start
+                    time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
+                    continue
+
+                if arm_block_reason:
+                    decision_row["entry_should_enter"] = False
+                    decision_row["entry_reason"] = f"blocked_by_arm({arm_block_reason})"
                     _write_decision_once_per_bar(decision_row)
                     elapsed = time.time() - loop_start
                     time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
