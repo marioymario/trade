@@ -1,0 +1,9 @@
+[Unit]
+Description=Trade heartbeat (writes status beacon)
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Projects/trade
+ExecStart=%h/Projects/trade/ops/cron_heartbeat.sh
