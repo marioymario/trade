@@ -25,7 +25,6 @@ services:
       TF_ENABLE_ONEDNN_OPTS: 0
       TF_CPP_MIN_LOG_LEVEL: 2
       TZ: America/Los_Angeles
-    # Run as host user to avoid root-owned bind-mount outputs
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - ./notebooks:/work/notebooks
@@ -70,7 +69,6 @@ services:
     working_dir: /work
     command: python -m files.main
 
-
   dashboard:
     build:
       context: ./dashboard
@@ -78,6 +76,7 @@ services:
     image: trade-dashboard
     container_name: dashboard
     restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
     ports:
       - "127.0.0.1:8501:8501"
     environment:
@@ -86,10 +85,6 @@ services:
       FLAGS_DIR: "/home/kk7wus/trade_flags"
     working_dir: /work
     volumes:
-      - /home/kk7wus/trade_flags:/home/kk7wus/trade_flags:ro
+      - /home/kk7wus/trade_flags:/home/kk7wus/trade_flags:rw
       - ./files:/work/files:ro
       - ./data:/work/data:ro
-
-# --- dashboard readiness (added) ---
-# Note: healthcheck makes `docker compose ps` show (healthy)
-

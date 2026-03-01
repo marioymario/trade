@@ -1,3 +1,4 @@
+# dashboard/app.py
 import os
 import sys
 from pathlib import Path
@@ -20,7 +21,7 @@ st.set_page_config(page_title="Trade Dashboard", layout="wide")
 
 def normalize_symbol(sym: str) -> str:
     sym = (sym or "").strip()
-    return sym.replace("/", "_")
+    return sym.replace("/", "_").replace("-", "_")
 
 
 def _read_text(p: Path) -> str:
@@ -127,6 +128,59 @@ def pill(label: str, value: str, tone: str) -> str:
         "info": "pill pill-info",
     }.get(tone, "pill pill-info")
     return f'<span class="{cls}"><b>{label}</b>: {value}</span>'
+
+
+def _parse_utc_iso(v: str) -> datetime | None:
+    s = (v or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def freshness_badge(decisions_mtime_utc: str, *, stale_after_s: int = 180) -> tuple[str, str, str]:
+    dt = _parse_utc_iso(decisions_mtime_utc)
+    if dt is None:
+        return ("decisions", "mtime=na", "warn")
+    age_s = int((datetime.now(timezone.utc) - dt).total_seconds())
+    if age_s < 0:
+        age_s = 0
+    if age_s <= stale_after_s:
+        return ("decisions", f"FRESH ({age_s}s)", "good")
+    return ("decisions", f"STALE ({age_s}s)", "bad")
+
+
+def _can_write_dir(d: Path) -> bool:
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / ".write_test.tmp"
+        p.write_text("ok")
+        p.unlink(missing_ok=True)  # py3.8+; if older, except below will catch
+        return True
+    except Exception:
+        return False
+
+
+def _set_flag(flag_path: Path, on: bool) -> tuple[bool, str]:
+    try:
+        flag_path.parent.mkdir(parents=True, exist_ok=True)
+        if on:
+            flag_path.write_text("")  # create or truncate
+        else:
+            try:
+                flag_path.unlink()
+            except FileNotFoundError:
+                pass
+        return True, "ok"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
 
 
 def build_event_tables(
@@ -392,9 +446,17 @@ st.markdown(
 st.title("Trade Dashboard (Charts + Ops)")
 
 flags_dir = os.environ.get("FLAGS_DIR") or str(Path.home() / "trade_flags")
-status_path = Path(flags_dir) / "status.txt"
+flags_path = Path(flags_dir)
+status_path = flags_path / "status.txt"
 status_txt = _read_text(status_path)
 status_kv = parse_kv_text(status_txt)
+
+# Derive canonical flag file paths (what old-box uses)
+kill_switch_file = Path(os.environ.get("KILL_SWITCH_FILE", str(flags_path / "STOP")))
+halt_orders_file = Path(os.environ.get("HALT_ORDERS_FILE", str(flags_path / "HALT")))
+arm_file = Path(os.environ.get("ARM_FILE", str(flags_path / "ARM")))
+
+can_write_flags = _can_write_dir(flags_path)
 
 with st.sidebar:
     st.subheader("Session")
@@ -408,6 +470,56 @@ with st.sidebar:
     days = st.slider("Lookback days", 1, 14, 3)
     max_rows = st.slider("Max bars", 200, 5000, 1500, step=100)
 
+    st.subheader("Ops controls")
+    st.caption(f"FLAGS_DIR: {flags_dir}")
+    st.caption(f"STOP file: {kill_switch_file}")
+    st.caption(f"HALT file: {halt_orders_file}")
+    st.caption(f"ARM file: {arm_file}")
+
+    if not can_write_flags:
+        st.warning("Flags directory is not writable from dashboard container. Controls disabled.")
+    else:
+        c1, c2, c3 = st.columns(3)
+        stop_now = c1.button("STOP ON")
+        stop_off = c1.button("STOP OFF")
+        halt_on = c2.button("HALT ON")
+        halt_off = c2.button("HALT OFF")
+        arm_on = c3.button("ARM ON")
+        arm_off = c3.button("ARM OFF")
+
+        if stop_now:
+            ok, msg = _set_flag(kill_switch_file, True)
+            st.toast(f"STOP ON: {msg}", icon="🛑" if ok else "⚠️")
+            st.cache_data.clear()
+            st.rerun()
+        if stop_off:
+            ok, msg = _set_flag(kill_switch_file, False)
+            st.toast(f"STOP OFF: {msg}", icon="✅" if ok else "⚠️")
+            st.cache_data.clear()
+            st.rerun()
+
+        if halt_on:
+            ok, msg = _set_flag(halt_orders_file, True)
+            st.toast(f"HALT ON: {msg}", icon="⛔" if ok else "⚠️")
+            st.cache_data.clear()
+            st.rerun()
+        if halt_off:
+            ok, msg = _set_flag(halt_orders_file, False)
+            st.toast(f"HALT OFF: {msg}", icon="✅" if ok else "⚠️")
+            st.cache_data.clear()
+            st.rerun()
+
+        if arm_on:
+            ok, msg = _set_flag(arm_file, True)
+            st.toast(f"ARM ON: {msg}", icon="🟢" if ok else "⚠️")
+            st.cache_data.clear()
+            st.rerun()
+        if arm_off:
+            ok, msg = _set_flag(arm_file, False)
+            st.toast(f"ARM OFF: {msg}", icon="🟡" if ok else "⚠️")
+            st.cache_data.clear()
+            st.rerun()
+
     st.subheader("Overlays / Events")
     show_entries = st.checkbox("Show Trade Entries", value=True)
     show_exits = st.checkbox("Show Trade Exits", value=True)
@@ -420,8 +532,6 @@ with st.sidebar:
 
     st.subheader("PnL window")
     pnl_window_mode = st.radio("Window mode", ["exit_ts in window", "entry_ts in window"], index=0)
-
-    st.caption(f"FLAGS_DIR: {flags_dir}")
 
 raw_root = Path("data/raw") / data_tag / symbol / timeframe
 decisions_csv = Path("data/processed/decisions") / data_tag / symbol / timeframe / "decisions.csv"
@@ -452,6 +562,8 @@ trade_status = status_kv.get("trade_status", "na")
 dashboard_status = status_kv.get("dashboard_status", "na")
 beacon_ts = status_kv.get("ts_utc", "na")
 dec_mtime = status_kv.get("decisions_mtime_utc", "na")
+halted_reason = status_kv.get("halted_reason", "")
+paper_action = status_kv.get("paper_action", "")
 
 
 def tone_on_off(v: str) -> str:
@@ -481,22 +593,27 @@ def tone_trend(v: str) -> str:
     return "warn"
 
 
+fresh_label, fresh_value, fresh_tone = freshness_badge(dec_mtime, stale_after_s=180)
+
 with st.container():
     c1, c2 = st.columns([1, 1])
 
     with c1:
         st.markdown("<div class='block'>", unsafe_allow_html=True)
         st.markdown("### Safety", unsafe_allow_html=True)
+
         st.markdown(
             " ".join(
                 [
                     pill("STOP", STOP, tone_on_off(STOP)),
                     pill("HALT", HALT, tone_on_off(HALT)),
                     pill("ARM", ARM, "good" if (ARM or "").upper() == "ON" else "warn"),
+                    pill(fresh_label, fresh_value, fresh_tone),
                 ]
             ),
             unsafe_allow_html=True,
         )
+
         st.markdown(
             " ".join(
                 [
@@ -507,7 +624,18 @@ with st.container():
             ),
             unsafe_allow_html=True,
         )
-        st.markdown(f"<div class='small'>beacon_ts={beacon_ts} · decisions_mtime_utc={dec_mtime}</div>", unsafe_allow_html=True)
+
+        st.markdown(
+            f"<div class='small'>beacon_ts={beacon_ts} · decisions_mtime_utc={dec_mtime}</div>",
+            unsafe_allow_html=True,
+        )
+
+        if halted_reason or paper_action:
+            st.markdown(
+                f"<div class='small'>halted_reason={halted_reason or '—'} · paper_action={paper_action or '—'}</div>",
+                unsafe_allow_html=True,
+            )
+
         st.markdown("</div>", unsafe_allow_html=True)
 
     with c2:
@@ -571,7 +699,9 @@ if compute_features is not None:
         st.warning(f"compute_features() failed: {e}")
 
 entries, exits, dec_events, stop_events = build_event_tables(
-    bars, decisions, trades,
+    bars,
+    decisions,
+    trades,
     show_entries=show_entries,
     show_exits=show_exits,
     show_decisions=show_decisions,
@@ -581,7 +711,6 @@ entries, exits, dec_events, stop_events = build_event_tables(
 fig = candle_figure(bars, feats, entries, exits, dec_events, stop_events)
 st.plotly_chart(fig, use_container_width=True)
 
-# --- Indicators panels ---
 if feats is not None and not feats.empty:
     x0 = bars["timestamp"].iloc[0]
     x1 = bars["timestamp"].iloc[-1]
@@ -594,7 +723,6 @@ if feats is not None and not feats.empty:
         st.subheader("ATR% (14)")
         st.plotly_chart(indicator_figure(feats, x0, x1, "atr"), use_container_width=True)
 
-# --- PnL strip + window-synced trades ---
 st.subheader("PnL (window-synced)")
 
 if not trades.empty:
@@ -612,7 +740,6 @@ if not trades.empty:
 
     stats = pnl_strip(tw)
 
-    # Display strip
     s1, s2, s3, s4, s5 = st.columns([1, 1, 1, 1, 1])
     s1.metric("Trades", f"{stats['trades']}")
     s2.metric("Realized PnL (USD)", f"{stats['pnl_usd']:.4f}")
@@ -627,11 +754,19 @@ if not trades.empty:
     st.caption(f"Trades filtered by: {pnl_window_mode} ∈ [{bar_min}, {bar_max}]")
 
     show_cols = [
-        "exchange", "symbol", "timeframe", "side",
-        "entry_ts_ms", "exit_ts_ms",
-        "entry_price", "exit_price", "exit_reason",
-        "realized_pnl_usd", "realized_pnl_pct",
-        "stop_price", "market_reason",
+        "exchange",
+        "symbol",
+        "timeframe",
+        "side",
+        "entry_ts_ms",
+        "exit_ts_ms",
+        "entry_price",
+        "exit_price",
+        "exit_reason",
+        "realized_pnl_usd",
+        "realized_pnl_pct",
+        "stop_price",
+        "market_reason",
     ]
     present_cols = [c for c in show_cols if c in tw.columns]
     tw_show = tw[present_cols].tail(200).copy()
