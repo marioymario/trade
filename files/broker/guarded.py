@@ -1,3 +1,4 @@
+# files/broker/guarded.py
 from __future__ import annotations
 
 import os
@@ -33,45 +34,88 @@ def _env_float(name: str, default: float = 0.0) -> float:
         return float(default)
 
 
+def _exists(path: str) -> bool:
+    try:
+        return bool(path) and os.path.exists(path)
+    except Exception:
+        return False
+
+
 @dataclass(frozen=True)
 class Guardrails:
+    flags_dir: str
     kill_switch_file: str
     halt_orders_file: str
-    armed: bool
+    arm_file: str
     dry_run: bool
     max_order_usd: float
     max_position_usd: float
 
     @staticmethod
     def from_env() -> "Guardrails":
+        flags_dir = os.environ.get("FLAGS_DIR", f"{os.path.expanduser('~')}/trade_flags").strip()
+        kill_switch_file = os.environ.get("KILL_SWITCH_FILE", "/tmp/TRADING_STOP").strip()
+        halt_orders_file = os.environ.get("HALT_ORDERS_FILE", "").strip()
+        arm_file = os.environ.get("ARM_FILE", "").strip() or f"{flags_dir}/ARM"
+
         return Guardrails(
-            kill_switch_file=os.environ.get("KILL_SWITCH_FILE", "/tmp/TRADING_STOP").strip(),
-            halt_orders_file=os.environ.get("HALT_ORDERS_FILE", "").strip(),
-            armed=_env_bool("ARMED", False),
+            flags_dir=flags_dir,
+            kill_switch_file=kill_switch_file,
+            halt_orders_file=halt_orders_file,
+            arm_file=arm_file,
             dry_run=_env_bool("DRY_RUN", False),
             max_order_usd=_env_float("MAX_ORDER_USD", 0.0),
             max_position_usd=_env_float("MAX_POSITION_USD", 0.0),
         )
 
-    def halt_reason(self) -> Optional[str]:
-        if self.kill_switch_file and os.path.exists(self.kill_switch_file):
-            return f"kill_switch({self.kill_switch_file})"
-        if self.halt_orders_file and os.path.exists(self.halt_orders_file):
-            return f"halt_orders({self.halt_orders_file})"
+    def halt_code(self) -> Optional[str]:
+        # Canonical codes (Mission 4)
+        if self.kill_switch_file and _exists(self.kill_switch_file):
+            return "STOP_BLOCK"
+        if self.halt_orders_file and _exists(self.halt_orders_file):
+            return "HALT_ENTRY_BLOCK"
         return None
+
+    def is_armed(self) -> bool:
+        return _exists(self.arm_file)
 
 
 class GuardedBroker:
     """
-    Wrapper that enforces:
-      - kill/halt files => block new entries
-      - (optional) arming gate for real broker
+    Submit-boundary guard wrapper.
+
+    Enforces:
+      - STOP/HALT flag files => block entries (exits always allowed)
+      - file-based ARM gate (single source of truth)
+      - (optional) DRY_RUN gate for real broker
       - USD caps for orders/positions
     """
 
-    def __init__(self, inner: Broker, *, require_armed_for_entries: bool):
+    def __init__(
+        self,
+        inner: Broker,
+        *,
+        require_arm_for_entries: bool,
+        block_entries_on_dry_run: bool,
+    ):
         self._inner = inner
-        self._require_armed = bool(require_armed_for_entries)
+        self._require_arm = bool(require_arm_for_entries)
+        self._block_on_dry_run = bool(block_entries_on_dry_run)
+
+    def entry_block_reason(
+        self,
+        *,
+        symbol: str,
+        side: StrategySide,
+        size: float,
+        entry_price: float,
+    ) -> Optional[str]:
+        return self._block_entry_reason(
+            symbol=symbol,
+            side=side,
+            size=size,
+            entry_price=entry_price,
+        )
 
     def _block_entry_reason(
         self,
@@ -83,36 +127,42 @@ class GuardedBroker:
     ) -> Optional[str]:
         g = Guardrails.from_env()
 
-        r = g.halt_reason()
-        if r:
-            return r
+        # STOP/HALT => EXIT ONLY (reduce-only). Block entries here.
+        code = g.halt_code()
+        if code:
+            if code == "STOP_BLOCK":
+                return f"{code}(kill_switch={g.kill_switch_file})"
+            return f"{code}(halt_orders={g.halt_orders_file})"
 
-        if self._require_armed:
-            # Two-key arming model
-            if g.dry_run:
-                return "dry_run"
-            if not g.armed:
-                return "not_armed"
+        # Optional: real broker dry-run gate
+        if self._block_on_dry_run and g.dry_run:
+            return "DRY_RUN_BLOCK"
 
+        # Single-source arming model: ARM_FILE existence
+        if self._require_arm and (not g.is_armed()):
+            return f"ARM_BLOCK(arm_file={g.arm_file})"
+
+        # Validate order inputs
         try:
             px = float(entry_price)
             qty = float(size)
         except Exception:
-            return "bad_inputs"
+            return "BAD_INPUTS"
 
         if px <= 0 or qty <= 0:
-            return "bad_inputs"
+            return "BAD_INPUTS"
 
+        # Order USD cap
         order_usd = px * qty
         if g.max_order_usd > 0 and order_usd > g.max_order_usd:
-            return f"max_order_usd({order_usd:.2f}>{g.max_order_usd:.2f})"
+            return f"MAX_ORDER_USD_BLOCK(order_usd={order_usd:.2f} cap={g.max_order_usd:.2f})"
 
-        # Position cap (covers future scale-in support)
+        # Position USD cap (covers future scale-in support)
         pos = self._inner.get_tracked_position(symbol=symbol)
         existing_qty = float(pos.qty) if pos is not None else 0.0
         position_usd = px * (existing_qty + qty)
         if g.max_position_usd > 0 and position_usd > g.max_position_usd:
-            return f"max_position_usd({position_usd:.2f}>{g.max_position_usd:.2f})"
+            return f"MAX_POSITION_USD_BLOCK(position_usd={position_usd:.2f} cap={g.max_position_usd:.2f})"
 
         return None
 
@@ -214,7 +264,7 @@ class GuardedBroker:
         reason: str,
         exit_ts_ms: Optional[int] = None,
     ) -> dict:
-        # Always allow exits (even if halted). This is safer.
+        # EXIT ONLY behavior: always allow exits (even if halted). This is safer.
         return self._inner.realize_and_close(
             symbol=symbol,
             exit_price=exit_price,

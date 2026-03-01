@@ -70,3 +70,26 @@ services:
     working_dir: /work
     command: python -m files.main
 
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    image: trade-dashboard
+    container_name: dashboard
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8501:8501"
+    environment:
+      PYTHONPATH: /work
+      TZ: America/Los_Angeles
+      FLAGS_DIR: "/home/kk7wus/trade_flags"
+    working_dir: /work
+    volumes:
+      - /home/kk7wus/trade_flags:/home/kk7wus/trade_flags:ro
+      - ./files:/work/files:ro
+      - ./data:/work/data:ro
+
+# --- dashboard readiness (added) ---
+# Note: healthcheck makes `docker compose ps` show (healthy)
+
