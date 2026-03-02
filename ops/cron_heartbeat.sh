@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+#set -euo pipefail
 
 LOG="${HOME}/trade_heartbeat.log"
 LOCK="/tmp/trade_heartbeat.lock"
@@ -20,7 +20,7 @@ load_env_allowlist() {
     local val="${line#*=}"
 
     if [[ "$val" =~ ^\".*\"$ ]]; then val="${val:1:${#val}-2}"; fi
-    if [[ "$val" =~ ^\'.*\'$ ]]; then val="${val:1:${#val}-2}"; fi
+    if [[ "$val" =~ ^\'.*\'$ ]]; then val="${val:1:${#val}-1}"; fi
 
     if [[ "${key}=" =~ $allow ]]; then
       export "${key}=${val}"
@@ -82,15 +82,16 @@ svc_is_up() {
   DECISIONS_CSV="$PROJ/data/processed/decisions/${DATA_TAG}/${SYMBOL_PATH}/${TIMEFRAME}/decisions.csv"
   TRADES_CSV="$PROJ/data/processed/trades/${DATA_TAG}/${SYMBOL_PATH}/${TIMEFRAME}/trades.csv"
 
+  # ---- Decision mtime + last row (for logs) ----
   echo "=== decisions.csv ==="
   echo "decisions_csv=${DECISIONS_CSV}"
+  csv_mtime_utc="na"
   if [[ -f "$DECISIONS_CSV" ]]; then
     csv_epoch="$(stat -c %Y "$DECISIONS_CSV" 2>/dev/null || echo 0)"
     csv_mtime_utc="$(as_utc "$csv_epoch")"
     echo "decisions_mtime_utc=${csv_mtime_utc}"
     tail -n 1 "$DECISIONS_CSV" || true
   else
-    csv_mtime_utc="na"
     echo "decisions_mtime_utc=na"
     echo "decisions_csv_missing=1"
   fi
@@ -143,14 +144,12 @@ svc_is_up() {
 
       LIMITS_LINE="$out"
 
-      # Parse key=value tokens from the one-liner
-      # Expected: limits_state=... reason=... trades_today=... pnl_today_usd=...
       for tok in $out; do
         case "$tok" in
-          limits_state=*) LIMITS_STATE="${tok#limits_state=}" ;;
-          reason=*)       LIMITS_REASON="${tok#reason=}" ;;
-          trades_today=*) LIMITS_TRADES_TODAY="${tok#trades_today=}" ;;
-          pnl_today_usd=*) LIMITS_PNL_TODAY_USD="${tok#pnl_today_usd=}" ;;
+        limits_state=*) LIMITS_STATE="${tok#limits_state=}" ;;
+        reason=*) LIMITS_REASON="${tok#reason=}" ;;
+        trades_today=*) LIMITS_TRADES_TODAY="${tok#trades_today=}" ;;
+        pnl_today_usd=*) LIMITS_PNL_TODAY_USD="${tok#pnl_today_usd=}" ;;
         esac
       done
 
@@ -176,6 +175,114 @@ svc_is_up() {
     paper_status="$(svc_is_up paper)"
   fi
 
+  # ---- Position snapshot from latest decision row (header-aware) ----
+  POS_SIDE="na"
+  POS_QTY="na"
+  POS_ENTRY_PX="na"
+  POS_STOP_PX="na"
+  POS_TRAIL_ANCHOR_PX="na"
+  POS_UNREAL_PNL_USD="na"
+  POS_UNREAL_PNL_PCT="na"
+
+  TRAIL_REASON="na"
+  TRAIL_NEW_STOP="na"
+  TRAIL_NEW_ANCHOR="na"
+
+  ENTRY_SHOULD_ENTER="na"
+  ENTRY_SIDE="na"
+  ENTRY_CONFIDENCE="na"
+  ENTRY_REASON="na"
+
+  EXIT_SHOULD_EXIT="na"
+  EXIT_REASON="na"
+
+  if [[ -f "$DECISIONS_CSV" ]]; then
+    # Prints key=value pairs, one per line, safe for bash "read" loop.
+    while IFS='=' read -r k v; do
+      [[ -z "$k" ]] && continue
+      case "$k" in
+      POS_SIDE) POS_SIDE="$v" ;;
+      POS_QTY) POS_QTY="$v" ;;
+      POS_ENTRY_PX) POS_ENTRY_PX="$v" ;;
+      POS_STOP_PX) POS_STOP_PX="$v" ;;
+      POS_TRAIL_ANCHOR_PX) POS_TRAIL_ANCHOR_PX="$v" ;;
+      POS_UNREAL_PNL_USD) POS_UNREAL_PNL_USD="$v" ;;
+      POS_UNREAL_PNL_PCT) POS_UNREAL_PNL_PCT="$v" ;;
+      TRAIL_REASON) TRAIL_REASON="$v" ;;
+      TRAIL_NEW_STOP) TRAIL_NEW_STOP="$v" ;;
+      TRAIL_NEW_ANCHOR) TRAIL_NEW_ANCHOR="$v" ;;
+      ENTRY_SHOULD_ENTER) ENTRY_SHOULD_ENTER="$v" ;;
+      ENTRY_SIDE) ENTRY_SIDE="$v" ;;
+      ENTRY_CONFIDENCE) ENTRY_CONFIDENCE="$v" ;;
+      ENTRY_REASON) ENTRY_REASON="$v" ;;
+      EXIT_SHOULD_EXIT) EXIT_SHOULD_EXIT="$v" ;;
+      EXIT_REASON) EXIT_REASON="$v" ;;
+      esac
+    done < <(
+      python3 - "$DECISIONS_CSV" <<'PY'
+import csv, sys
+
+path = sys.argv[1]
+out = {
+  "POS_SIDE": "na",
+  "POS_QTY": "na",
+  "POS_ENTRY_PX": "na",
+  "POS_STOP_PX": "na",
+  "POS_TRAIL_ANCHOR_PX": "na",
+  "POS_UNREAL_PNL_USD": "na",
+  "POS_UNREAL_PNL_PCT": "na",
+  "TRAIL_REASON": "na",
+  "TRAIL_NEW_STOP": "na",
+  "TRAIL_NEW_ANCHOR": "na",
+  "ENTRY_SHOULD_ENTER": "na",
+  "ENTRY_SIDE": "na",
+  "ENTRY_CONFIDENCE": "na",
+  "ENTRY_REASON": "na",
+  "EXIT_SHOULD_EXIT": "na",
+  "EXIT_REASON": "na",
+}
+
+def get(row, k):
+  v = (row or {}).get(k, "")
+  if v is None or str(v).strip() == "":
+    return "na"
+  return str(v).strip()
+
+try:
+  with open(path, "r", newline="", encoding="utf-8") as f:
+    r = csv.DictReader(f)
+    last = None
+    for row in r:
+      last = row
+    if last:
+      out["POS_SIDE"] = get(last, "position_side")
+      out["POS_QTY"] = get(last, "position_qty")
+      out["POS_ENTRY_PX"] = get(last, "position_entry_price")
+      out["POS_STOP_PX"] = get(last, "position_stop_price")
+      out["POS_TRAIL_ANCHOR_PX"] = get(last, "position_trailing_anchor_price")
+      out["POS_UNREAL_PNL_USD"] = get(last, "unrealized_pnl_usd")
+      out["POS_UNREAL_PNL_PCT"] = get(last, "unrealized_pnl_pct")
+
+      out["TRAIL_REASON"] = get(last, "trail_reason")
+      out["TRAIL_NEW_STOP"] = get(last, "trail_new_stop")
+      out["TRAIL_NEW_ANCHOR"] = get(last, "trail_new_anchor")
+
+      out["ENTRY_SHOULD_ENTER"] = get(last, "entry_should_enter")
+      out["ENTRY_SIDE"] = get(last, "entry_side")
+      out["ENTRY_CONFIDENCE"] = get(last, "entry_confidence")
+      out["ENTRY_REASON"] = get(last, "entry_reason")
+
+      out["EXIT_SHOULD_EXIT"] = get(last, "exit_should_exit")
+      out["EXIT_REASON"] = get(last, "exit_reason")
+except Exception:
+  pass
+
+for k, v in out.items():
+  print(f"{k}={v}")
+PY
+    )
+  fi
+
   now_utc="$(date -u -Is | sed 's/+00:00/Z/')"
   tmp="${STATUS_FILE}.tmp.$$"
 
@@ -195,11 +302,31 @@ svc_is_up() {
     echo "limits_reason=${LIMITS_REASON}"
     echo "trades_today=${LIMITS_TRADES_TODAY}"
     echo "pnl_today_usd=${LIMITS_PNL_TODAY_USD}"
+
+    echo "pos_side=${POS_SIDE}"
+    echo "pos_qty=${POS_QTY}"
+    echo "pos_entry_px=${POS_ENTRY_PX}"
+    echo "pos_stop_px=${POS_STOP_PX}"
+    echo "pos_trailing_anchor_px=${POS_TRAIL_ANCHOR_PX}"
+    echo "pos_unreal_pnl_usd=${POS_UNREAL_PNL_USD}"
+    echo "pos_unreal_pnl_pct=${POS_UNREAL_PNL_PCT}"
+
+    echo "trail_reason=${TRAIL_REASON}"
+    echo "trail_new_stop=${TRAIL_NEW_STOP}"
+    echo "trail_new_anchor=${TRAIL_NEW_ANCHOR}"
+
+    echo "entry_should_enter=${ENTRY_SHOULD_ENTER}"
+    echo "entry_side=${ENTRY_SIDE}"
+    echo "entry_confidence=${ENTRY_CONFIDENCE}"
+    echo "entry_reason=${ENTRY_REASON}"
+
+    echo "exit_should_exit=${EXIT_SHOULD_EXIT}"
+    echo "exit_reason=${EXIT_REASON}"
   } >"$tmp"
   mv -f "$tmp" "$STATUS_FILE"
 
   echo "=== status beacon ==="
   stat -c 'status_mtime=%y size=%s path=%n' "$STATUS_FILE" 2>/dev/null || true
-  tail -n 40 "$STATUS_FILE" || true
+  tail -n 80 "$STATUS_FILE" || true
   echo
 ) 9>"$LOCK"

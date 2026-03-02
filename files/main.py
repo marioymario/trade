@@ -732,13 +732,33 @@ def main() -> None:
             # EXIT / MANAGE POSITION
             # ------------------------
             if position is not None:
+                # While in a position, keep entry fields blank to avoid beacon confusion.
+                decision_row["entry_should_enter"] = ""
+                decision_row["entry_side"] = ""
+                decision_row["entry_confidence"] = ""
+                decision_row["entry_reason"] = ""
+
                 u_usd, u_pct = broker.get_unrealized_pnl(symbol=ccxt_symbol, last_price=latest_close)
                 decision_row["unrealized_pnl_usd"] = float(u_usd)
                 decision_row["unrealized_pnl_pct"] = float(u_pct)
 
+                # Always publish trail_* fields (even when frozen) so beacon never shows na while in position.
+                cur_stop = float(position.stop_price) if position.stop_price is not None else None
+                cur_anchor = (
+                    float(getattr(position, "trailing_anchor_price", None))
+                    if getattr(position, "trailing_anchor_price", None) is not None
+                    else None
+                )
+
                 if halted_reason:
                     decision_row["trail_reason"] = f"halted_freeze_trailing({halted_reason})"
-                elif not degraded_mode:
+                    decision_row["trail_new_stop"] = float(cur_stop) if cur_stop is not None else ""
+                    decision_row["trail_new_anchor"] = float(cur_anchor) if cur_anchor is not None else ""
+                elif degraded_mode:
+                    decision_row["trail_reason"] = f"degraded_freeze_trailing({degraded_why})"
+                    decision_row["trail_new_stop"] = float(cur_stop) if cur_stop is not None else ""
+                    decision_row["trail_new_anchor"] = float(cur_anchor) if cur_anchor is not None else ""
+                else:
                     new_stop, new_anchor, trail_reason = compute_trailing_stop_update(
                         position=position,
                         latest_close=latest_close,
@@ -762,8 +782,6 @@ def main() -> None:
                         if updated is not None:
                             position = updated
                             _fill_position_fields(decision_row, position)
-                else:
-                    decision_row["trail_reason"] = "degraded_freeze_trailing"
 
                 exit_sig = evaluate_exit(
                     position=position,
