@@ -1,4 +1,3 @@
-# dashboard/app.py
 import os
 import sys
 from pathlib import Path
@@ -565,6 +564,11 @@ dec_mtime = status_kv.get("decisions_mtime_utc", "na")
 halted_reason = status_kv.get("halted_reason", "")
 paper_action = status_kv.get("paper_action", "")
 
+limits_state = status_kv.get("limits_state", "")
+limits_reason = status_kv.get("limits_reason", "")
+trades_today = status_kv.get("trades_today", "")
+pnl_today_usd = status_kv.get("pnl_today_usd", "")
+
 
 def tone_on_off(v: str) -> str:
     v = (v or "").strip().upper()
@@ -601,6 +605,16 @@ with st.container():
     with c1:
         st.markdown("<div class='block'>", unsafe_allow_html=True)
         st.markdown("### Safety", unsafe_allow_html=True)
+
+        if (limits_state or "").strip().lower() == "halted":
+            st.error("⛔ HALTED BY LIMITS", icon="⛔")
+            x1, x2, x3 = st.columns(3)
+            x1.metric("Reason", limits_reason or "unknown")
+            x2.metric("Trades today", trades_today or "na")
+            x3.metric("PnL today (USD)", pnl_today_usd or "na")
+            st.caption("To resume: adjust MAX_* limits in .env (operator decision), switch DATA_TAG for a fresh session, or wait for the next day/session boundary.")
+        elif (limits_state or "").strip().lower() == "disabled":
+            st.info("Limits: disabled (MAX_TRADES_PER_DAY<=0 and MAX_DAILY_LOSS_USD<=0)")
 
         st.markdown(
             " ".join(
