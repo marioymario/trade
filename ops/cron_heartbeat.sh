@@ -114,29 +114,50 @@ svc_is_up() {
   # ---- ENFORCEMENT (A+B): STOP/HALT/DAILY LIMITS => stop paper ----
   HALTED_REASON=""
 
+  # Daily limits detail fields (published to beacon)
+  LIMITS_STATE="na"
+  LIMITS_REASON="na"
+  LIMITS_TRADES_TODAY="na"
+  LIMITS_PNL_TODAY_USD="na"
+  LIMITS_LINE=""
+
   if [[ -f "$KILL_SWITCH_FILE" ]]; then
     HALTED_REASON="kill_switch(${KILL_SWITCH_FILE})"
   elif [[ -f "$HALT_ORDERS_FILE" ]]; then
     HALTED_REASON="halt_orders(${HALT_ORDERS_FILE})"
   else
     if [[ -x "$PROJ/ops/daily_limits_check.py" ]]; then
-      # daily_limits_check returns rc=2 to mean "limits exceeded".
-      # With `set -e`, we must capture rc manually or the script exits early.
       rc=0
+      out=""
       set +e
-      python3 "$PROJ/ops/daily_limits_check.py" \
-        --trades-csv "$TRADES_CSV" \
-        --max-trades-per-day "$MAX_TRADES_PER_DAY" \
-        --max-daily-loss-usd "$MAX_DAILY_LOSS_USD" \
-        --tz "$TZ_LOCAL" \
-        --quiet
+      out="$(
+        python3 "$PROJ/ops/daily_limits_check.py" \
+          --trades-csv "$TRADES_CSV" \
+          --max-trades-per-day "$MAX_TRADES_PER_DAY" \
+          --max-daily-loss-usd "$MAX_DAILY_LOSS_USD" \
+          --tz "$TZ_LOCAL" \
+          --quiet
+      )"
       rc=$?
       set -e
 
+      LIMITS_LINE="$out"
+
+      # Parse key=value tokens from the one-liner
+      # Expected: limits_state=... reason=... trades_today=... pnl_today_usd=...
+      for tok in $out; do
+        case "$tok" in
+          limits_state=*) LIMITS_STATE="${tok#limits_state=}" ;;
+          reason=*)       LIMITS_REASON="${tok#reason=}" ;;
+          trades_today=*) LIMITS_TRADES_TODAY="${tok#trades_today=}" ;;
+          pnl_today_usd=*) LIMITS_PNL_TODAY_USD="${tok#pnl_today_usd=}" ;;
+        esac
+      done
+
       if [[ "$rc" == "2" ]]; then
-        HALTED_REASON="daily_limits(max_trades=${MAX_TRADES_PER_DAY} max_loss=${MAX_DAILY_LOSS_USD} tz=${TZ_LOCAL})"
+        HALTED_REASON="daily_limits(${LIMITS_REASON})"
       elif [[ "$rc" != "0" ]]; then
-        echo "WARN: daily_limits_check rc=$rc (not halting)"
+        echo "WARN: daily_limits_check rc=$rc (not halting) out='$out'"
       fi
     else
       echo "WARN: daily_limits_check.py missing or not executable (not halting)"
@@ -170,11 +191,15 @@ svc_is_up() {
     echo "decisions_mtime_utc=${csv_mtime_utc}"
     echo "halted_reason=${HALTED_REASON}"
     echo "paper_action=${PAPER_ACTION}"
+    echo "limits_state=${LIMITS_STATE}"
+    echo "limits_reason=${LIMITS_REASON}"
+    echo "trades_today=${LIMITS_TRADES_TODAY}"
+    echo "pnl_today_usd=${LIMITS_PNL_TODAY_USD}"
   } >"$tmp"
   mv -f "$tmp" "$STATUS_FILE"
 
   echo "=== status beacon ==="
   stat -c 'status_mtime=%y size=%s path=%n' "$STATUS_FILE" 2>/dev/null || true
-  tail -n 30 "$STATUS_FILE" || true
+  tail -n 40 "$STATUS_FILE" || true
   echo
 ) 9>"$LOCK"

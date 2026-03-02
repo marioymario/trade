@@ -8,6 +8,10 @@ Exit codes:
   0 = OK (limits not exceeded OR limits disabled OR file missing)
   2 = LIMITS EXCEEDED
   3 = ERROR (bad input)
+
+Quiet mode:
+  When --quiet is set, prints exactly ONE parseable line:
+    limits_state=ok|disabled|halted reason=<...> trades_today=<int> pnl_today_usd=<float>
 """
 
 from __future__ import annotations
@@ -57,20 +61,21 @@ def pick_pnl_usd(row: dict) -> float:
     return 0.0
 
 
+def qprint(quiet: bool, line: str) -> None:
+    if quiet:
+        print(line)
+    else:
+        print(line)
+
+
 def main() -> int:
     a = parse_args()
 
     max_trades = float(a.max_trades_per_day)
     max_loss = float(a.max_daily_loss_usd)
 
-    # Disabled => OK
-    if max_trades <= 0 and max_loss <= 0:
-        return 0
-
-    trades_csv = a.trades_csv
-    if not trades_csv or not os.path.exists(trades_csv):
-        # No file yet => OK
-        return 0
+    trades_today = 0
+    pnl_today = 0.0
 
     tz = None
     if ZoneInfo is not None:
@@ -83,8 +88,19 @@ def main() -> int:
     start_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
     start_ms = int(start_day.timestamp() * 1000)
 
-    trades_today = 0
-    pnl_today = 0.0
+    disabled = (max_trades <= 0 and max_loss <= 0)
+
+    trades_csv = a.trades_csv
+    if not trades_csv or not os.path.exists(trades_csv):
+        # No file yet => OK (but still report state for UX)
+        state = "disabled" if disabled else "ok"
+        reason = "trades_csv_missing"
+        if a.quiet:
+            qprint(True, f"limits_state={state} reason={reason} trades_today=0 pnl_today_usd=0.00")
+        else:
+            qprint(False, f"daily_check: trades_today=0, pnl_today_usd=0.00")
+            qprint(False, f"limits_state={state} reason={reason}")
+        return 0
 
     try:
         with open(trades_csv, newline="", encoding="utf-8") as f:
@@ -98,22 +114,42 @@ def main() -> int:
     except Exception as e:
         if not a.quiet:
             print(f"ERROR reading trades csv: {e}")
+        else:
+            qprint(True, "limits_state=error reason=read_error trades_today=0 pnl_today_usd=0.00")
         return 3
 
+    exceeded = False
+    reasons: list[str] = []
+
+    if not disabled:
+        if max_trades > 0 and trades_today >= max_trades:
+            exceeded = True
+            reasons.append(f"trades_today({trades_today}>={int(max_trades)})")
+        if max_loss > 0 and pnl_today <= -max_loss:
+            exceeded = True
+            reasons.append(f"pnl_today({pnl_today:.2f}<=-{max_loss:.2f})")
+
+    # Output
     if not a.quiet:
         print(f"daily_check: trades_today={trades_today}, pnl_today_usd={pnl_today:.2f}")
 
-    exceeded = False
-    if max_trades > 0 and trades_today >= max_trades:
-        exceeded = True
-        if not a.quiet:
-            print(f"DAILY_LIMIT: trades_today {trades_today} >= {int(max_trades)}")
-    if max_loss > 0 and pnl_today <= -max_loss:
-        exceeded = True
-        if not a.quiet:
-            print(f"DAILY_LIMIT: pnl_today {pnl_today:.2f} <= -{max_loss:.2f}")
+    if exceeded:
+        state = "halted"
+        reason = ",".join(reasons) if reasons else "exceeded"
+        if a.quiet:
+            qprint(True, f"limits_state={state} reason={reason} trades_today={trades_today} pnl_today_usd={pnl_today:.2f}")
+        else:
+            print(f"DAILY_LIMIT: {reason}")
+            print(f"limits_state={state} reason={reason}")
+        return 2
 
-    return 2 if exceeded else 0
+    state = "disabled" if disabled else "ok"
+    reason = "disabled" if disabled else "ok"
+    if a.quiet:
+        qprint(True, f"limits_state={state} reason={reason} trades_today={trades_today} pnl_today_usd={pnl_today:.2f}")
+    else:
+        print(f"limits_state={state} reason={reason}")
+    return 0
 
 
 if __name__ == "__main__":
