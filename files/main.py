@@ -50,10 +50,6 @@ def _timeframe_to_seconds(timeframe: str) -> int:
 
 
 def _storage_symbol(symbol: str) -> str:
-    """
-    Normalize symbol for filesystem + processed CSV identity:
-      - BTC/USD -> BTC_USD
-    """
     return symbol.strip().upper().replace("/", "_")
 
 
@@ -76,7 +72,6 @@ def _cadence_ok(df: pd.DataFrame, expected_step_s: int) -> bool:
 
 
 def _fill_position_fields(decision_row: dict, position) -> None:
-    """Mutates decision_row to include position data if available."""
     if position is None:
         decision_row["position_side"] = ""
         decision_row["position_qty"] = ""
@@ -88,9 +83,7 @@ def _fill_position_fields(decision_row: dict, position) -> None:
     decision_row["position_side"] = position.side
     decision_row["position_qty"] = float(position.qty)
     decision_row["position_entry_price"] = float(position.entry_price)
-    decision_row["position_stop_price"] = (
-        float(position.stop_price) if position.stop_price is not None else ""
-    )
+    decision_row["position_stop_price"] = float(position.stop_price) if position.stop_price is not None else ""
     decision_row["position_trailing_anchor_price"] = (
         float(position.trailing_anchor_price)
         if getattr(position, "trailing_anchor_price", None) is not None
@@ -99,7 +92,6 @@ def _fill_position_fields(decision_row: dict, position) -> None:
 
 
 def _read_last_ts_ms_from_decisions_csv(path: str) -> int | None:
-    """Return the last ts_ms found in an existing decisions CSV, or None."""
     try:
         if not os.path.exists(path) or os.path.getsize(path) == 0:
             return None
@@ -117,18 +109,11 @@ def _read_last_ts_ms_from_decisions_csv(path: str) -> int | None:
                     last = ts_ms
         return last
     except Exception as e:
-        logger.warning(
-            "Failed to read last ts_ms from decisions CSV",
-            extra={"path": path, "error": repr(e)},
-        )
+        logger.warning("Failed to read last ts_ms from decisions CSV", extra={"path": path, "error": repr(e)})
         return None
 
 
 def _read_tail_market_reasons(path: str, *, tail_n: int = 50, window_k: int = 6) -> list[str]:
-    """
-    Read the tail of decisions.csv and extract the last window_k market_reason values.
-    Best-effort: if file missing, return [].
-    """
     try:
         if not os.path.exists(path) or os.path.getsize(path) == 0:
             return []
@@ -146,15 +131,11 @@ def _read_tail_market_reasons(path: str, *, tail_n: int = 50, window_k: int = 6)
         reasons = reasons[-tail_n:]
         return reasons[-window_k:]
     except Exception as e:
-        logger.warning(
-            "Failed to read tail market_reasons from decisions CSV",
-            extra={"path": path, "error": repr(e)},
-        )
+        logger.warning("Failed to read tail market_reasons from decisions CSV", extra={"path": path, "error": repr(e)})
         return []
 
 
 def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Ensure timestamp is datetime UTC and rows are sorted/deduped."""
     if df is None or len(df) == 0:
         return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
 
@@ -168,7 +149,6 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _drop_in_progress_last_bar_if_safe(df: pd.DataFrame, *, min_bars: int) -> pd.DataFrame:
-    """Drop latest bar only if we still keep >= min_bars rows."""
     if df is None:
         return df
     if len(df) >= (min_bars + 1):
@@ -177,9 +157,6 @@ def _drop_in_progress_last_bar_if_safe(df: pd.DataFrame, *, min_bars: int) -> pd
 
 
 def _blank_decision_row(*, ts_ms: int, now_iso: str, bar_high: float, bar_low: float) -> dict:
-    """
-    Create a full-shape decision row (so CSV stays consistent) even when we skip trading.
-    """
     return {
         "ts_ms": int(ts_ms) if ts_ms else 0,
         "timestamp": now_iso or "",
@@ -204,21 +181,13 @@ def _blank_decision_row(*, ts_ms: int, now_iso: str, bar_high: float, bar_low: f
         "entry_side": "",
         "entry_confidence": "",
         "entry_reason": "",
+        "entry_blocked_reason": "",
         "exit_should_exit": "",
         "exit_reason": "",
     }
 
 
 def _is_degraded(*, recent_reasons: deque[str], internal_cadence_ok: bool) -> tuple[bool, str]:
-    """
-    v0.3 watchdog contract:
-    degraded_mode=True if any of:
-      - cadence_failed occurs >=2 times in last 6 bars
-      - features_invalid occurs >=2 times in last 6 bars
-      - internal cadence anomaly detected in merged bars (internal_cadence_ok=False)
-
-    Returns (degraded, why).
-    """
     last = list(recent_reasons)[-6:]
     cadence_failed_n = sum(1 for r in last if "cadence_failed" in r)
     features_invalid_n = sum(1 for r in last if "features_invalid" in r)
@@ -280,10 +249,6 @@ def _daily_limits_exceeded(
     max_daily_loss_usd: float,
     tz_name: str,
 ) -> tuple[bool, str, int, float]:
-    """
-    Returns (exceeded, reason, trades_today, pnl_today_usd).
-    Disabled if both limits <= 0, or file missing.
-    """
     max_trades = float(max_trades_per_day)
     max_loss = float(max_daily_loss_usd)
 
@@ -330,14 +295,10 @@ def _daily_limits_exceeded(
 def main() -> None:
     cfg = load_trading_config()
 
-    # Contract:
-    # - cfg.ccxt_exchange: fetch source
-    # - cfg.data_tag: storage namespace (raw/processed)
     data_tag = cfg.data_tag
     ccxt_symbol = cfg.symbol
     storage_symbol = _storage_symbol(cfg.symbol)
 
-    # Flag paths (single source of truth is env; defaults keep old-box behavior)
     flags_dir = os.environ.get("FLAGS_DIR", f"{os.path.expanduser('~')}/trade_flags").strip()
     kill_switch_file = os.environ.get("KILL_SWITCH_FILE", "/tmp/TRADING_STOP").strip()
     halt_orders_file = os.environ.get("HALT_ORDERS_FILE", "").strip()
@@ -378,10 +339,9 @@ def main() -> None:
         },
     )
 
-    # ---- Broker selection + guard wrapper ----
     require_armed_for_entries = False
     if broker_kind == "alpaca":
-        from files.broker.alpaca import AlpacaBroker  # local import so paper runs without alpaca deps
+        from files.broker.alpaca import AlpacaBroker
 
         inner = AlpacaBroker()
         require_armed_for_entries = True
@@ -392,9 +352,6 @@ def main() -> None:
             slippage_bps=getattr(cfg, "slippage_bps", 0.0),
         )
 
-    # IMPORTANT:
-    # - For paper trading, DRY_RUN should NOT block entries (paper is already safe).
-    # - For real broker (alpaca), DRY_RUN should block entries as an extra safety layer.
     block_entries_on_dry_run = (broker_kind == "alpaca")
 
     broker = GuardedBroker(
@@ -406,7 +363,6 @@ def main() -> None:
     expected_step_s = _timeframe_to_seconds(cfg.timeframe)
     step_ms = int(expected_step_s * 1000)
 
-    # ---- Restart-safe decision dedupe: seed last_decision_ts_ms from existing CSV ----
     dpath_existing = decisions_csv_path(exchange=data_tag, symbol=storage_symbol, timeframe=cfg.timeframe)
     last_decision_ts_ms: int | None = _read_last_ts_ms_from_decisions_csv(dpath_existing)
     if last_decision_ts_ms is not None:
@@ -415,7 +371,6 @@ def main() -> None:
             extra={"csv_path": dpath_existing, "last_decision_ts_ms": int(last_decision_ts_ms)},
         )
 
-    # ---- Watchdog state (v0.3): recent market_reason window ----
     recent_reasons: deque[str] = deque(maxlen=12)
     for r in _read_tail_market_reasons(dpath_existing, tail_n=80, window_k=6):
         recent_reasons.append(r)
@@ -442,52 +397,34 @@ def main() -> None:
         dpath = append_decision_csv(
             decision=decision_row,
             exchange=data_tag,
-            symbol=storage_symbol,  # STORAGE SYMBOL (e.g. BTC_USD)
+            symbol=storage_symbol,
             timeframe=cfg.timeframe,
         )
         last_decision_ts_ms = ts_ms
         logger.info("Decision recorded", extra={"csv_path": dpath})
 
-    # Headroom so dropping the in-progress bar never starves min_bars.
     fetch_limit = max(cfg.min_bars, 200) + 1
     tail_n = max(cfg.min_bars, 200) + 1
     store_tail_n = max(5000, tail_n)
 
-    logger.info(
-        "LIVE headroom",
-        extra={
-            "fetch_limit": int(fetch_limit),
-            "tail_n": int(tail_n),
-            "store_tail_n": int(store_tail_n),
-        },
-    )
+    logger.info("LIVE headroom", extra={"fetch_limit": int(fetch_limit), "tail_n": int(tail_n), "store_tail_n": int(store_tail_n)})
 
     trades_path = trades_csv_path(exchange=data_tag, symbol=storage_symbol, timeframe=cfg.timeframe)
 
     while True:
         loop_start = time.time()
         try:
-            # Optional failure injections
-            if os.environ.get("FORCE_FETCH_FAIL", "").strip() in ("1", "true", "yes", "on"):
-                raise RuntimeError("FORCE_FETCH_FAIL=1")
-
-            # ------------------------
-            # FETCH + PERSIST
-            # ------------------------
             try:
                 fetched = fetch_market_data(
                     symbol=ccxt_symbol,
                     timeframe=cfg.timeframe,
                     limit=int(fetch_limit),
                     min_bars_warn=cfg.min_bars,
-                    ccxt_exchange=cfg.ccxt_exchange,  # FETCH SOURCE
+                    ccxt_exchange=cfg.ccxt_exchange,
                 )
             except MarketFetchError as e:
                 mr = "fetch_failed"
-                logger.warning(
-                    "Market fetch failed; skipping loop",
-                    extra={"symbol": ccxt_symbol, "timeframe": cfg.timeframe, "error": repr(e)},
-                )
+                logger.warning("Market fetch failed; skipping loop", extra={"symbol": ccxt_symbol, "timeframe": cfg.timeframe, "error": repr(e)})
 
                 now_ts_ms = 0
                 now_iso = ""
@@ -506,25 +443,9 @@ def main() -> None:
             fetched = _normalize_df(fetched)
             fetched = _drop_in_progress_last_bar_if_safe(fetched, min_bars=cfg.min_bars)
 
-            if os.environ.get("FORCE_PERSIST_FAIL", "").strip() in ("1", "true", "yes", "on"):
-                raise RuntimeError("FORCE_PERSIST_FAIL=1")
+            append_ohlcv_parquet(df=fetched, exchange=data_tag, symbol=storage_symbol, timeframe=cfg.timeframe)
 
-            append_ohlcv_parquet(
-                df=fetched,
-                exchange=data_tag,  # STORAGE TAG
-                symbol=storage_symbol,  # STORAGE SYMBOL
-                timeframe=cfg.timeframe,
-            )
-
-            # ------------------------
-            # LOAD STORE + MERGE (robust)
-            # ------------------------
-            store_df = load_recent_ohlcv_parquet(
-                exchange=data_tag,  # STORAGE TAG
-                symbol=storage_symbol,  # STORAGE SYMBOL
-                timeframe=cfg.timeframe,
-                tail_n=int(store_tail_n),
-            )
+            store_df = load_recent_ohlcv_parquet(exchange=data_tag, symbol=storage_symbol, timeframe=cfg.timeframe, tail_n=int(store_tail_n))
             store_df = _normalize_df(store_df)
             store_df = _drop_in_progress_last_bar_if_safe(store_df, min_bars=cfg.min_bars)
 
@@ -535,23 +456,7 @@ def main() -> None:
                 combined = combined.iloc[-int(tail_n) :].reset_index(drop=True)
             combined = _drop_in_progress_last_bar_if_safe(combined, min_bars=cfg.min_bars)
 
-            rows_store = len(store_df)
-            rows_fetched = len(fetched)
             rows = len(combined)
-
-            logger.info(
-                "Bars snapshot",
-                extra={
-                    "rows_store": int(rows_store),
-                    "rows_fetched": int(rows_fetched),
-                    "rows_combined": int(rows),
-                    "min_bars": int(cfg.min_bars),
-                    "store_tail_ts": str(store_df.iloc[-1]["timestamp"]) if rows_store > 0 else "",
-                    "fetched_tail_ts": str(fetched.iloc[-1]["timestamp"]) if rows_fetched > 0 else "",
-                    "combined_tail_ts": str(combined.iloc[-1]["timestamp"]) if rows > 0 else "",
-                },
-            )
-
             has_enough_bars = rows >= cfg.min_bars
             cadence_ok = _cadence_ok(combined, expected_step_s)
 
@@ -586,15 +491,7 @@ def main() -> None:
 
             if not cadence_ok:
                 mr = "cadence_failed"
-                logger.warning(
-                    "Cadence check failed; skipping loop (possible partial outage / sparse feed)",
-                    extra={
-                        "symbol": ccxt_symbol,
-                        "timeframe": cfg.timeframe,
-                        "expected_step_s": int(expected_step_s),
-                        "rows_combined": int(rows),
-                    },
-                )
+                logger.warning("Cadence check failed; skipping loop", extra={"symbol": ccxt_symbol, "timeframe": cfg.timeframe, "expected_step_s": int(expected_step_s), "rows_combined": int(rows)})
                 drow = _blank_decision_row(ts_ms=now_ts_ms, now_iso=now_iso, bar_high=bar_high, bar_low=bar_low)
                 drow["market_reason"] = mr
                 _fill_position_fields(drow, position)
@@ -603,25 +500,13 @@ def main() -> None:
                 time.sleep(cfg.loop_sleep_seconds)
                 continue
 
-            internal_cadence_ok = cadence_ok
-            new_degraded, why = _is_degraded(recent_reasons=recent_reasons, internal_cadence_ok=internal_cadence_ok)
+            new_degraded, why = _is_degraded(recent_reasons=recent_reasons, internal_cadence_ok=cadence_ok)
             if new_degraded != degraded_mode or why != degraded_why:
                 degraded_mode = new_degraded
                 degraded_why = why
                 degraded_since_ts_ms = now_ts_ms if degraded_mode else None
-                logger.warning(
-                    "WATCHDOG: DEGRADED MODE change",
-                    extra={
-                        "degraded_mode": bool(degraded_mode),
-                        "why": degraded_why,
-                        "since_ts_ms": degraded_since_ts_ms or "",
-                        "recent_reasons": list(recent_reasons)[-6:],
-                    },
-                )
+                logger.warning("WATCHDOG: DEGRADED MODE change", extra={"degraded_mode": bool(degraded_mode), "why": degraded_why, "since_ts_ms": degraded_since_ts_ms or "", "recent_reasons": list(recent_reasons)[-6:]})
 
-            # ------------------------
-            # FEATURES + MARKET STATE
-            # ------------------------
             feats = compute_features(combined)
 
             try:
@@ -629,25 +514,8 @@ def main() -> None:
             except Exception as e:
                 mr = "features_invalid"
                 logger.warning("Latest features invalid; skipping loop", extra={"symbol": ccxt_symbol, "error": repr(e)})
-
-                try:
-                    latest_row = feats.iloc[-1]
-                    ts = latest_row.get("timestamp", None)
-                    ft_ts_ms = int(getattr(ts, "value", 0) // 1_000_000) if ts is not None else now_ts_ms
-                    ft_iso = ts.isoformat() if hasattr(ts, "isoformat") else now_iso
-                    close = float(latest_row.get("close", 0.0))
-                    hi = float(latest_row.get("high", close))
-                    lo = float(latest_row.get("low", close))
-                except Exception:
-                    ft_ts_ms = now_ts_ms
-                    ft_iso = now_iso
-                    hi = bar_high
-                    lo = bar_low
-
-                drow = _blank_decision_row(ts_ms=ft_ts_ms, now_iso=ft_iso, bar_high=hi, bar_low=lo)
-                drow["market_reason"] = mr
-                if degraded_mode:
-                    drow["market_reason"] = f"DEGRADED({degraded_why})::{mr}"
+                drow = _blank_decision_row(ts_ms=now_ts_ms, now_iso=now_iso, bar_high=bar_high, bar_low=bar_low)
+                drow["market_reason"] = f"DEGRADED({degraded_why})::{mr}" if degraded_mode else mr
                 _fill_position_fields(drow, position)
                 _write_decision_once_per_bar(drow)
                 recent_reasons.append(mr)
@@ -666,12 +534,7 @@ def main() -> None:
             now_ts_ms = int(getattr(ts, "value", 0) // 1_000_000) if ts is not None else 0
             now_iso = ts.isoformat() if hasattr(ts, "isoformat") else ""
 
-            position = broker.get_tracked_position(
-                symbol=ccxt_symbol,
-                latest_close=latest_close,
-                latest_atr=latest_atr,
-                atr_mult=float(ATR_MULT),
-            )
+            position = broker.get_tracked_position(symbol=ccxt_symbol, latest_close=latest_close, latest_atr=latest_atr, atr_mult=float(ATR_MULT))
 
             decision_row = {
                 "ts_ms": now_ts_ms,
@@ -681,7 +544,7 @@ def main() -> None:
                 "tradable": bool(market_state.tradable),
                 "trend": market_state.trend,
                 "volatility": market_state.volatility,
-                "market_reason": market_state.reason,
+                "market_reason": f"DEGRADED({degraded_why})::{market_state.reason}" if degraded_mode else market_state.reason,
                 "cooldown_remaining_bars": "",
                 "position_side": "",
                 "position_qty": "",
@@ -697,58 +560,46 @@ def main() -> None:
                 "entry_side": "",
                 "entry_confidence": "",
                 "entry_reason": "",
+                "entry_blocked_reason": "",
                 "exit_should_exit": "",
                 "exit_reason": "",
             }
-
-            if degraded_mode:
-                decision_row["market_reason"] = f"DEGRADED({degraded_why})::{decision_row['market_reason']}"
-
             _fill_position_fields(decision_row, position)
 
-            # ------------------------
-            # IN-LOOP GUARDRAILS (block entries; still write decisions)
-            # ------------------------
+            # in-loop halted reasons (control plane)
             halted_reason = ""
             if _exists(kill_switch_file):
-                halted_reason = f"kill_switch({kill_switch_file})"
+                halted_reason = f"STOP_BLOCK(kill_switch={kill_switch_file})"
             elif _exists(halt_orders_file):
-                halted_reason = f"halt_orders({halt_orders_file})"
+                halted_reason = f"HALT_ENTRY_BLOCK(halt_orders={halt_orders_file})"
             else:
-                exceeded, reason, trades_today, pnl_today = _daily_limits_exceeded(
+                exceeded, reason, _, _ = _daily_limits_exceeded(
                     trades_csv=trades_path,
                     max_trades_per_day=max_trades_per_day,
                     max_daily_loss_usd=max_daily_loss_usd,
                     tz_name=tz_local,
                 )
                 if exceeded:
-                    halted_reason = f"daily_limits({reason})"
+                    halted_reason = f"DAILY_LIMITS_BLOCK({reason})"
 
             arm_block_reason = ""
             if not _exists(arm_file):
-                arm_block_reason = f"not_armed({arm_file})"
+                arm_block_reason = f"ARM_BLOCK(arm_file={arm_file})"
 
-            # ------------------------
-            # EXIT / MANAGE POSITION
-            # ------------------------
+            # ---- POSITION MANAGEMENT / EXIT ----
             if position is not None:
-                # While in a position, keep entry fields blank to avoid beacon confusion.
                 decision_row["entry_should_enter"] = ""
                 decision_row["entry_side"] = ""
                 decision_row["entry_confidence"] = ""
                 decision_row["entry_reason"] = ""
+                decision_row["entry_blocked_reason"] = ""
 
                 u_usd, u_pct = broker.get_unrealized_pnl(symbol=ccxt_symbol, last_price=latest_close)
                 decision_row["unrealized_pnl_usd"] = float(u_usd)
                 decision_row["unrealized_pnl_pct"] = float(u_pct)
 
-                # Always publish trail_* fields (even when frozen) so beacon never shows na while in position.
                 cur_stop = float(position.stop_price) if position.stop_price is not None else None
-                cur_anchor = (
-                    float(getattr(position, "trailing_anchor_price", None))
-                    if getattr(position, "trailing_anchor_price", None) is not None
-                    else None
-                )
+                cur_anchor = float(getattr(position, "trailing_anchor_price", 0.0)) if getattr(position, "trailing_anchor_price", None) is not None else None
 
                 if halted_reason:
                     decision_row["trail_reason"] = f"halted_freeze_trailing({halted_reason})"
@@ -766,152 +617,101 @@ def main() -> None:
                         latest_low=latest_low,
                         atr=latest_atr,
                     )
-
                     decision_row["trail_reason"] = trail_reason
                     decision_row["trail_new_stop"] = float(new_stop) if new_stop is not None else ""
                     decision_row["trail_new_anchor"] = float(new_anchor) if new_anchor is not None else ""
 
-                    if new_stop is not None and (
-                        position.stop_price is None or float(new_stop) != float(position.stop_price)
-                    ):
-                        updated = broker.update_stop(
-                            symbol=ccxt_symbol,
-                            new_stop_price=float(new_stop),
-                            new_trailing_anchor_price=float(new_anchor) if new_anchor is not None else None,
-                        )
+                    if new_stop is not None and (position.stop_price is None or float(new_stop) != float(position.stop_price)):
+                        updated = broker.update_stop(symbol=ccxt_symbol, new_stop_price=float(new_stop), new_trailing_anchor_price=float(new_anchor) if new_anchor is not None else None)
                         if updated is not None:
                             position = updated
                             _fill_position_fields(decision_row, position)
 
-                exit_sig = evaluate_exit(
-                    position=position,
-                    latest_features_row=latest_row,
-                    market_state=market_state,
-                    expected_step_s=int(expected_step_s),
-                )
-
+                exit_sig = evaluate_exit(position=position, latest_features_row=latest_row, market_state=market_state, expected_step_s=int(expected_step_s))
                 decision_row["exit_should_exit"] = bool(exit_sig.should_exit)
                 decision_row["exit_reason"] = exit_sig.reason or ""
 
                 if exit_sig.should_exit:
                     exit_reason = exit_sig.reason or "exit"
+                    exit_price = float(position.stop_price) if (exit_reason == "stop_hit" and position.stop_price is not None) else latest_close
 
-                    exit_price = latest_close
-                    if exit_reason == "stop_hit" and position.stop_price is not None:
-                        exit_price = float(position.stop_price)
-
-                    trade = broker.realize_and_close(
-                        symbol=ccxt_symbol,
-                        exit_price=float(exit_price),
-                        reason=exit_reason,
-                        exit_ts_ms=now_ts_ms if now_ts_ms > 0 else None,
-                    )
-
-                    csv_path = append_trade_csv(
-                        trade=trade,
-                        exchange=data_tag,
-                        symbol=storage_symbol,  # STORAGE SYMBOL
-                        timeframe=cfg.timeframe,
-                        market_reason=market_state.reason,
-                    )
+                    trade = broker.realize_and_close(symbol=ccxt_symbol, exit_price=float(exit_price), reason=exit_reason, exit_ts_ms=now_ts_ms if now_ts_ms > 0 else None)
+                    csv_path = append_trade_csv(trade=trade, exchange=data_tag, symbol=storage_symbol, timeframe=cfg.timeframe, market_reason=market_state.reason)
                     logger.info("Trade recorded", extra={"csv_path": csv_path})
 
                     _write_decision_once_per_bar(decision_row)
                     time.sleep(cfg.loop_sleep_seconds)
                     continue
 
-            # ------------------------
-            # ENTRY
-            # ------------------------
-            if position is None:
-                remaining = broker.cooldown_remaining_bars(
-                    symbol=ccxt_symbol,
-                    now_ts_ms=now_ts_ms,
-                    expected_step_s=int(expected_step_s),
-                    cooldown_bars=int(getattr(cfg, "cooldown_bars", 0)),
-                )
-                decision_row["cooldown_remaining_bars"] = int(remaining)
+                _write_decision_once_per_bar(decision_row)
+                elapsed = time.time() - loop_start
+                time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
+                continue
 
-                if remaining > 0:
+            # ---- ENTRY (publish signal, then compute block reason, then execute) ----
+            remaining = broker.cooldown_remaining_bars(symbol=ccxt_symbol, now_ts_ms=now_ts_ms, expected_step_s=int(expected_step_s), cooldown_bars=int(getattr(cfg, "cooldown_bars", 0)))
+            decision_row["cooldown_remaining_bars"] = int(remaining)
+
+            entry_sig = evaluate_entry(features=feats, market_state=market_state)
+            decision_row["entry_should_enter"] = bool(entry_sig.should_enter)
+            decision_row["entry_side"] = entry_sig.side
+            decision_row["entry_confidence"] = float(entry_sig.confidence)
+            decision_row["entry_reason"] = entry_sig.reason
+            decision_row["entry_blocked_reason"] = ""
+
+            if remaining > 0:
+                decision_row["entry_blocked_reason"] = f"COOLDOWN_BLOCK(remaining={int(remaining)})"
+                _write_decision_once_per_bar(decision_row)
+                elapsed = time.time() - loop_start
+                time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
+                continue
+
+            if decision_row["entry_should_enter"]:
+                # size first (strategy intent)
+                size = min(size_position(signal=entry_sig, market_state=market_state), cfg.max_order_size)
+
+                if max_position_usd > 0.0 and latest_close > 0.0:
+                    max_qty = float(max_position_usd) / float(latest_close)
+                    size = min(float(size), float(max_qty))
+
+                if float(size) <= 0.0:
+                    decision_row["entry_blocked_reason"] = "SIZE_BLOCK(size<=0)"
                     _write_decision_once_per_bar(decision_row)
                     elapsed = time.time() - loop_start
                     time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
                     continue
 
+                # global blockers (do not overwrite entry_should_enter)
                 if degraded_mode:
-                    decision_row["entry_should_enter"] = False
-                    decision_row["entry_reason"] = f"blocked_by_degraded({degraded_why})"
-                    _write_decision_once_per_bar(decision_row)
-                    elapsed = time.time() - loop_start
-                    time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
-                    continue
-
-                if halted_reason:
-                    decision_row["entry_should_enter"] = False
-                    decision_row["entry_reason"] = f"blocked_by_halt({halted_reason})"
-                    _write_decision_once_per_bar(decision_row)
-                    elapsed = time.time() - loop_start
-                    time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
-                    continue
-
-                if arm_block_reason:
-                    decision_row["entry_should_enter"] = False
-                    decision_row["entry_reason"] = f"blocked_by_arm({arm_block_reason})"
-                    _write_decision_once_per_bar(decision_row)
-                    elapsed = time.time() - loop_start
-                    time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
-                    continue
-
-                entry_sig = evaluate_entry(features=feats, market_state=market_state)
-                decision_row["entry_should_enter"] = bool(entry_sig.should_enter)
-                decision_row["entry_side"] = entry_sig.side
-                decision_row["entry_confidence"] = float(entry_sig.confidence)
-                decision_row["entry_reason"] = entry_sig.reason
-
-                if entry_sig.should_enter:
-                    size = min(
-                        size_position(signal=entry_sig, market_state=market_state),
-                        cfg.max_order_size,
-                    )
-
-                    if max_position_usd > 0.0 and latest_close > 0.0:
-                        max_qty = float(max_position_usd) / float(latest_close)
-                        size = min(float(size), float(max_qty))
-
-                    if size <= 0.0:
-                        decision_row["entry_should_enter"] = False
-                        decision_row["entry_reason"] = "blocked_by_size_cap"
-                        _write_decision_once_per_bar(decision_row)
-                        elapsed = time.time() - loop_start
-                        time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
-                        continue
-
-                    # Entries are modeled as next-bar (prevents same-bar stop hits)
-                    entry_ts_ms = now_ts_ms + step_ms
-
-                    stop_price = compute_initial_stop(
-                        side=entry_sig.side,
-                        entry_price=latest_close,
-                        atr=latest_atr,
-                    )
-
-                    broker.open_position(
+                    decision_row["entry_blocked_reason"] = f"DEGRADED_BLOCK({degraded_why})"
+                elif halted_reason:
+                    decision_row["entry_blocked_reason"] = str(halted_reason)
+                elif arm_block_reason:
+                    decision_row["entry_blocked_reason"] = str(arm_block_reason)
+                else:
+                    # submit-boundary reason (caps/dry_run/etc)
+                    blocked_reason = broker.open_position(
                         symbol=ccxt_symbol,
                         side=entry_sig.side,
-                        size=size,
-                        entry_price=latest_close,
-                        entry_ts_ms=entry_ts_ms,
-                        stop_price=stop_price,
+                        size=float(size),
+                        entry_price=float(latest_close),
+                        entry_ts_ms=int(now_ts_ms + step_ms),
+                        stop_price=compute_initial_stop(side=entry_sig.side, entry_price=latest_close, atr=latest_atr),
                         trailing_anchor_price=(latest_high if entry_sig.side == "LONG" else latest_low),
                     )
+                    if blocked_reason:
+                        decision_row["entry_blocked_reason"] = str(blocked_reason)
 
-                    position = broker.get_tracked_position(
-                        symbol=ccxt_symbol,
-                        latest_close=latest_close,
-                        latest_atr=latest_atr,
-                        atr_mult=float(ATR_MULT),
-                    )
-                    _fill_position_fields(decision_row, position)
+                # if blocked, do NOT enter
+                if decision_row["entry_blocked_reason"]:
+                    _write_decision_once_per_bar(decision_row)
+                    elapsed = time.time() - loop_start
+                    time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
+                    continue
+
+                # if not blocked, position should now exist (paper broker) — refresh snapshot
+                position = broker.get_tracked_position(symbol=ccxt_symbol, latest_close=latest_close, latest_atr=latest_atr, atr_mult=float(ATR_MULT))
+                _fill_position_fields(decision_row, position)
 
             _write_decision_once_per_bar(decision_row)
 
@@ -925,27 +725,6 @@ def main() -> None:
             elapsed = time.time() - loop_start
             time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
 
-        except RuntimeError as e:
-            # Failure injections (fetch/persist) should behave as "skip but continue"
-            msg = str(e)
-            if "FORCE_FETCH_FAIL=1" in msg:
-                logger.warning("Market fetch failed; recording skip decision and continuing")
-                drow = _blank_decision_row(ts_ms=0, now_iso="", bar_high=0.0, bar_low=0.0)
-                drow["market_reason"] = "fetch_failed"
-                _write_decision_once_per_bar(drow)
-                recent_reasons.append("fetch_failed")
-                time.sleep(cfg.loop_sleep_seconds)
-                continue
-            if "FORCE_PERSIST_FAIL=1" in msg:
-                logger.error("Persist failed; recording skip decision and continuing")
-                drow = _blank_decision_row(ts_ms=0, now_iso="", bar_high=0.0, bar_low=0.0)
-                drow["market_reason"] = "persist_failed"
-                _write_decision_once_per_bar(drow)
-                recent_reasons.append("persist_failed")
-                time.sleep(cfg.loop_sleep_seconds)
-                continue
-            logger.exception("Unhandled runtime error in main loop")
-            time.sleep(cfg.loop_sleep_seconds)
         except KeyboardInterrupt:
             logger.info("Stopping (KeyboardInterrupt)")
             break

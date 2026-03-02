@@ -89,6 +89,11 @@ class GuardedBroker:
       - file-based ARM gate (single source of truth)
       - (optional) DRY_RUN gate for real broker
       - USD caps for orders/positions
+
+    Contract (Mission 4 / observability):
+      - open_position(...) returns Optional[str]
+          * None => entry allowed + forwarded to inner broker
+          * str  => entry blocked; reason string is machine-safe and should be recorded by caller
     """
 
     def __init__(
@@ -222,7 +227,7 @@ class GuardedBroker:
         stop_price: Optional[float] = None,
         trailing_anchor_price: Optional[float] = None,
         **kwargs,
-    ) -> None:
+    ) -> Optional[str]:
         reason = self._block_entry_reason(
             symbol=symbol,
             side=side,
@@ -240,9 +245,9 @@ class GuardedBroker:
                     "reason": reason,
                 },
             )
-            return
+            return str(reason)
 
-        return self._inner.open_position(
+        self._inner.open_position(
             symbol=symbol,
             side=side,
             size=size,
@@ -252,6 +257,7 @@ class GuardedBroker:
             trailing_anchor_price=trailing_anchor_price,
             **kwargs,
         )
+        return None
 
     def get_unrealized_pnl(self, *, symbol: str, last_price: float) -> tuple[float, float]:
         return self._inner.get_unrealized_pnl(symbol=symbol, last_price=last_price)
@@ -271,4 +277,3 @@ class GuardedBroker:
             reason=reason,
             exit_ts_ms=exit_ts_ms,
         )
-

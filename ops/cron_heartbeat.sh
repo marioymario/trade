@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-#set -euo pipefail
+# ops/cron_heartbeat.sh
+#
+# Contract:
+# - Heartbeat is NON-LETHAL: it never stops/restarts containers.
+# - It only publishes truth + intent to status.txt.
+# - Safety enforcement happens inside paper (files/main.py).
+
+#set -u -o pipefail
 
 LOG="${HOME}/trade_heartbeat.log"
 LOCK="/tmp/trade_heartbeat.lock"
@@ -8,7 +15,7 @@ load_env_allowlist() {
   local env_file="$1"
   [[ -f "$env_file" ]] || return 0
 
-  local allow="^(DATA_TAG|SYMBOL|TIMEFRAME|DRY_RUN|FLAGS_DIR|KILL_SWITCH_FILE|HALT_ORDERS_FILE|ARM_FILE|MAX_TRADES_PER_DAY|MAX_DAILY_LOSS_USD|TZ_LOCAL)=$"
+  local allow="^(DATA_TAG|SYMBOL|TIMEFRAME|DRY_RUN|FLAGS_DIR|KILL_SWITCH_FILE|HALT_ORDERS_FILE|ARM_FILE|ARMED|MAX_TRADES_PER_DAY|MAX_DAILY_LOSS_USD|TZ_LOCAL)=$"
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" ]] && continue
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -19,8 +26,9 @@ load_env_allowlist() {
     local key="${line%%=*}"
     local val="${line#*=}"
 
+    # Strip wrapping quotes (fix: single quotes must drop BOTH ends)
     if [[ "$val" =~ ^\".*\"$ ]]; then val="${val:1:${#val}-2}"; fi
-    if [[ "$val" =~ ^\'.*\'$ ]]; then val="${val:1:${#val}-1}"; fi
+    if [[ "$val" =~ ^\'.*\'$ ]]; then val="${val:1:${#val}-2}"; fi
 
     if [[ "${key}=" =~ $allow ]]; then
       export "${key}=${val}"
@@ -40,6 +48,18 @@ svc_is_up() {
   else
     echo "down"
   fi
+}
+
+_exists() {
+  local p="$1"
+  [[ -n "$p" && -f "$p" ]]
+}
+
+# Read a single env var from inside the running paper container (source of truth).
+# Falls back to empty on any failure.
+paper_env_get() {
+  local name="$1"
+  docker compose exec -T paper sh -lc "printf '%s' \"\${${name}:-}\"" 2>/dev/null || true
 }
 
 (
@@ -68,6 +88,7 @@ svc_is_up() {
   : "${HALT_ORDERS_FILE:=${FLAGS_DIR}/HALT}"
   : "${ARM_FILE:=${FLAGS_DIR}/ARM}"
 
+  : "${ARMED:=0}"
   : "${MAX_TRADES_PER_DAY:=0}"
   : "${MAX_DAILY_LOSS_USD:=0}"
   : "${TZ_LOCAL:=America/Los_Angeles}"
@@ -82,7 +103,6 @@ svc_is_up() {
   DECISIONS_CSV="$PROJ/data/processed/decisions/${DATA_TAG}/${SYMBOL_PATH}/${TIMEFRAME}/decisions.csv"
   TRADES_CSV="$PROJ/data/processed/trades/${DATA_TAG}/${SYMBOL_PATH}/${TIMEFRAME}/trades.csv"
 
-  # ---- Decision mtime + last row (for logs) ----
   echo "=== decisions.csv ==="
   echo "decisions_csv=${DECISIONS_CSV}"
   csv_mtime_utc="na"
@@ -102,29 +122,37 @@ svc_is_up() {
   echo
 
   STOP="off"
-  [[ -f "$KILL_SWITCH_FILE" ]] && STOP="ON"
+  _exists "$KILL_SWITCH_FILE" && STOP="ON"
   HALT="off"
-  [[ -f "$HALT_ORDERS_FILE" ]] && HALT="ON"
+  _exists "$HALT_ORDERS_FILE" && HALT="ON"
   ARM="off"
-  [[ -f "$ARM_FILE" ]] && ARM="ON"
+  _exists "$ARM_FILE" && ARM="ON"
 
   paper_status="$(svc_is_up paper)"
   trade_status="$(svc_is_up trade)"
   dashboard_status="$(svc_is_up dashboard)"
 
-  # ---- ENFORCEMENT (A+B): STOP/HALT/DAILY LIMITS => stop paper ----
+  # --- ARMED truth: prefer running container env if paper is up ---
+  ARMED_SRC="env_file"
+  if [[ "$paper_status" == "up" ]]; then
+    v="$(paper_env_get ARMED)"
+    if [[ -n "$v" ]]; then
+      ARMED="$v"
+      ARMED_SRC="paper_container"
+    fi
+  fi
+
+  # ---- Compute halt intent (NON-LETHAL) ----
   HALTED_REASON=""
 
-  # Daily limits detail fields (published to beacon)
   LIMITS_STATE="na"
   LIMITS_REASON="na"
   LIMITS_TRADES_TODAY="na"
   LIMITS_PNL_TODAY_USD="na"
-  LIMITS_LINE=""
 
-  if [[ -f "$KILL_SWITCH_FILE" ]]; then
+  if _exists "$KILL_SWITCH_FILE"; then
     HALTED_REASON="kill_switch(${KILL_SWITCH_FILE})"
-  elif [[ -f "$HALT_ORDERS_FILE" ]]; then
+  elif _exists "$HALT_ORDERS_FILE"; then
     HALTED_REASON="halt_orders(${HALT_ORDERS_FILE})"
   else
     if [[ -x "$PROJ/ops/daily_limits_check.py" ]]; then
@@ -142,8 +170,8 @@ svc_is_up() {
       rc=$?
       set -e
 
-      LIMITS_LINE="$out"
-
+      # Parse key=value tokens from one-liner:
+      # limits_state=... reason=... trades_today=... pnl_today_usd=...
       for tok in $out; do
         case "$tok" in
         limits_state=*) LIMITS_STATE="${tok#limits_state=}" ;;
@@ -156,24 +184,24 @@ svc_is_up() {
       if [[ "$rc" == "2" ]]; then
         HALTED_REASON="daily_limits(${LIMITS_REASON})"
       elif [[ "$rc" != "0" ]]; then
-        echo "WARN: daily_limits_check rc=$rc (not halting) out='$out'"
+        echo "WARN: daily_limits_check rc=$rc (non-fatal) out='$out'"
       fi
     else
-      echo "WARN: daily_limits_check.py missing or not executable (not halting)"
+      echo "WARN: daily_limits_check.py missing or not executable (non-fatal)"
     fi
   fi
 
-  PAPER_ACTION="none"
+  # Heartbeat enforcement contract: soft-only
+  ENFORCEMENT_MODE="soft"
+  ENFORCEMENT_WOULD_STOP="0"
+  ENFORCEMENT_ACTION="none"
+
+  # In soft mode we never stop. But we still publish "would stop" intent for auditability.
   if [[ -n "$HALTED_REASON" ]]; then
-    if docker inspect -f '{{.State.Running}}' paper 2>/dev/null | grep -qx true; then
-      echo "ENFORCE: stopping paper due to ${HALTED_REASON}"
-      docker compose stop paper || true
-      PAPER_ACTION="stopped"
-    else
-      PAPER_ACTION="already_down"
-    fi
-    paper_status="$(svc_is_up paper)"
+    ENFORCEMENT_WOULD_STOP="1"
   fi
+
+  PAPER_ACTION="none"
 
   # ---- Position snapshot from latest decision row (header-aware) ----
   POS_SIDE="na"
@@ -197,7 +225,6 @@ svc_is_up() {
   EXIT_REASON="na"
 
   if [[ -f "$DECISIONS_CSV" ]]; then
-    # Prints key=value pairs, one per line, safe for bash "read" loop.
     while IFS='=' read -r k v; do
       [[ -z "$k" ]] && continue
       case "$k" in
@@ -221,33 +248,19 @@ svc_is_up() {
     done < <(
       python3 - "$DECISIONS_CSV" <<'PY'
 import csv, sys
-
 path = sys.argv[1]
-out = {
-  "POS_SIDE": "na",
-  "POS_QTY": "na",
-  "POS_ENTRY_PX": "na",
-  "POS_STOP_PX": "na",
-  "POS_TRAIL_ANCHOR_PX": "na",
-  "POS_UNREAL_PNL_USD": "na",
-  "POS_UNREAL_PNL_PCT": "na",
-  "TRAIL_REASON": "na",
-  "TRAIL_NEW_STOP": "na",
-  "TRAIL_NEW_ANCHOR": "na",
-  "ENTRY_SHOULD_ENTER": "na",
-  "ENTRY_SIDE": "na",
-  "ENTRY_CONFIDENCE": "na",
-  "ENTRY_REASON": "na",
-  "EXIT_SHOULD_EXIT": "na",
-  "EXIT_REASON": "na",
-}
-
+out = {k:"na" for k in [
+  "POS_SIDE","POS_QTY","POS_ENTRY_PX","POS_STOP_PX","POS_TRAIL_ANCHOR_PX",
+  "POS_UNREAL_PNL_USD","POS_UNREAL_PNL_PCT",
+  "TRAIL_REASON","TRAIL_NEW_STOP","TRAIL_NEW_ANCHOR",
+  "ENTRY_SHOULD_ENTER","ENTRY_SIDE","ENTRY_CONFIDENCE","ENTRY_REASON",
+  "EXIT_SHOULD_EXIT","EXIT_REASON",
+]}
 def get(row, k):
   v = (row or {}).get(k, "")
   if v is None or str(v).strip() == "":
     return "na"
   return str(v).strip()
-
 try:
   with open(path, "r", newline="", encoding="utf-8") as f:
     r = csv.DictReader(f)
@@ -262,21 +275,17 @@ try:
       out["POS_TRAIL_ANCHOR_PX"] = get(last, "position_trailing_anchor_price")
       out["POS_UNREAL_PNL_USD"] = get(last, "unrealized_pnl_usd")
       out["POS_UNREAL_PNL_PCT"] = get(last, "unrealized_pnl_pct")
-
       out["TRAIL_REASON"] = get(last, "trail_reason")
       out["TRAIL_NEW_STOP"] = get(last, "trail_new_stop")
       out["TRAIL_NEW_ANCHOR"] = get(last, "trail_new_anchor")
-
       out["ENTRY_SHOULD_ENTER"] = get(last, "entry_should_enter")
       out["ENTRY_SIDE"] = get(last, "entry_side")
       out["ENTRY_CONFIDENCE"] = get(last, "entry_confidence")
       out["ENTRY_REASON"] = get(last, "entry_reason")
-
       out["EXIT_SHOULD_EXIT"] = get(last, "exit_should_exit")
       out["EXIT_REASON"] = get(last, "exit_reason")
 except Exception:
   pass
-
 for k, v in out.items():
   print(f"{k}={v}")
 PY
@@ -295,9 +304,18 @@ PY
     echo "STOP=${STOP}"
     echo "HALT=${HALT}"
     echo "ARM=${ARM}"
+    echo "ARMED=${ARMED}"
+    echo "armed_src=${ARMED_SRC}"
+
     echo "decisions_mtime_utc=${csv_mtime_utc}"
     echo "halted_reason=${HALTED_REASON}"
+
+    echo "enforcement_mode=${ENFORCEMENT_MODE}"
+    echo "enforcement_would_stop=${ENFORCEMENT_WOULD_STOP}"
+    echo "enforcement_action=${ENFORCEMENT_ACTION}"
+
     echo "paper_action=${PAPER_ACTION}"
+
     echo "limits_state=${LIMITS_STATE}"
     echo "limits_reason=${LIMITS_REASON}"
     echo "trades_today=${LIMITS_TRADES_TODAY}"
@@ -327,6 +345,6 @@ PY
 
   echo "=== status beacon ==="
   stat -c 'status_mtime=%y size=%s path=%n' "$STATUS_FILE" 2>/dev/null || true
-  tail -n 80 "$STATUS_FILE" || true
+  tail -n 120 "$STATUS_FILE" || true
   echo
 ) 9>"$LOCK"

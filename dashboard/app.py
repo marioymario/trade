@@ -427,6 +427,17 @@ def pnl_strip(trades_window: pd.DataFrame) -> dict:
     }
 
 
+def _tf_seconds(tf: str) -> int:
+    tf = (tf or "").strip().lower()
+    if tf.endswith("m"):
+        return int(tf[:-1]) * 60
+    if tf.endswith("h"):
+        return int(tf[:-1]) * 3600
+    if tf.endswith("d"):
+        return int(tf[:-1]) * 86400
+    return 0
+
+
 st.markdown(
     """
 <style>
@@ -556,6 +567,9 @@ last_pnl = last_trade.get("realized_pnl_usd") if last_trade is not None and "rea
 STOP = status_kv.get("STOP", "na")
 HALT = status_kv.get("HALT", "na")
 ARM = status_kv.get("ARM", "na")
+ARMED = status_kv.get("ARMED", status_kv.get("armed", "na"))
+DRY_RUN = status_kv.get("DRY_RUN", status_kv.get("dry_run", "na"))
+
 paper_status = status_kv.get("paper_status", "na")
 trade_status = status_kv.get("trade_status", "na")
 dashboard_status = status_kv.get("dashboard_status", "na")
@@ -568,6 +582,22 @@ limits_state = status_kv.get("limits_state", "")
 limits_reason = status_kv.get("limits_reason", "")
 trades_today = status_kv.get("trades_today", "")
 pnl_today_usd = status_kv.get("pnl_today_usd", "")
+
+# staleness check (prevents "stale beacon" confusion)
+age_sec = None
+try:
+    dt = _parse_utc_iso(beacon_ts)
+    if dt is not None:
+        age_sec = int((datetime.now(timezone.utc) - dt).total_seconds())
+        if age_sec < 0:
+            age_sec = 0
+except Exception:
+    age_sec = None
+
+bar_sec = _tf_seconds(timeframe)
+stale_beacon = False
+if age_sec is not None:
+    stale_beacon = (age_sec > (2 * bar_sec) if bar_sec > 0 else age_sec > 600)
 
 
 def tone_on_off(v: str) -> str:
@@ -606,6 +636,9 @@ with st.container():
         st.markdown("<div class='block'>", unsafe_allow_html=True)
         st.markdown("### Safety", unsafe_allow_html=True)
 
+        if stale_beacon:
+            st.warning(f"Beacon may be stale (age≈{age_sec}s, timeframe={timeframe or '—'}).")
+
         if (limits_state or "").strip().lower() == "halted":
             st.error("⛔ HALTED BY LIMITS", icon="⛔")
             x1, x2, x3 = st.columns(3)
@@ -622,6 +655,8 @@ with st.container():
                     pill("STOP", STOP, tone_on_off(STOP)),
                     pill("HALT", HALT, tone_on_off(HALT)),
                     pill("ARM", ARM, "good" if (ARM or "").upper() == "ON" else "warn"),
+                    pill("ARMED", ARMED, "good" if (ARMED or "").strip() == "1" else "warn"),
+                    pill("DRY_RUN", DRY_RUN, "good" if (DRY_RUN or "").strip() == "1" else "warn"),
                     pill(fresh_label, fresh_value, fresh_tone),
                 ]
             ),
