@@ -79,12 +79,19 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     ports:
       - "127.0.0.1:8501:8501"
+    env_file:
+      - .env
     environment:
       PYTHONPATH: /work
       TZ: America/Los_Angeles
       FLAGS_DIR: "/home/kk7wus/trade_flags"
+      # Make reload reliable inside Docker mounts
+      STREAMLIT_SERVER_RUN_ON_SAVE: "true"
+      STREAMLIT_SERVER_FILE_WATCHER_TYPE: "poll"
     working_dir: /work
     volumes:
       - /home/kk7wus/trade_flags:/home/kk7wus/trade_flags:rw
       - ./files:/work/files:ro
       - ./data:/work/data:ro
+      # HOT-RELOAD: bind-mount dashboard source over /app (where image runs /app/app.py)
+      - ./dashboard:/app:rw

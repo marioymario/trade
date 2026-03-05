@@ -15,7 +15,10 @@ load_env_allowlist() {
   local env_file="$1"
   [[ -f "$env_file" ]] || return 0
 
-  local allow="^(DATA_TAG|SYMBOL|TIMEFRAME|DRY_RUN|FLAGS_DIR|KILL_SWITCH_FILE|HALT_ORDERS_FILE|ARM_FILE|ARMED|MAX_TRADES_PER_DAY|MAX_DAILY_LOSS_USD|TZ_LOCAL)=$"
+  # NOTE:
+  # - ARMED is intentionally NOT treated as authority anymore (ARM_FILE existence is).
+  # - DRY_RUN *is* authoritative from .env for reporting (compose create-time truth).
+  local allow="^(DATA_TAG|SYMBOL|TIMEFRAME|DRY_RUN|FLAGS_DIR|KILL_SWITCH_FILE|HALT_ORDERS_FILE|ARM_FILE|MAX_TRADES_PER_DAY|MAX_DAILY_LOSS_USD|TZ_LOCAL)=$"
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" ]] && continue
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -26,7 +29,7 @@ load_env_allowlist() {
     local key="${line%%=*}"
     local val="${line#*=}"
 
-    # Strip wrapping quotes (fix: single quotes must drop BOTH ends)
+    # Strip wrapping quotes
     if [[ "$val" =~ ^\".*\"$ ]]; then val="${val:1:${#val}-2}"; fi
     if [[ "$val" =~ ^\'.*\'$ ]]; then val="${val:1:${#val}-2}"; fi
 
@@ -55,8 +58,7 @@ _exists() {
   [[ -n "$p" && -f "$p" ]]
 }
 
-# Read a single env var from inside the running paper container (source of truth).
-# Falls back to empty on any failure.
+# Read a single env var from inside the running paper container (best-effort debug only).
 paper_env_get() {
   local name="$1"
   docker compose exec -T paper sh -lc "printf '%s' \"\${${name}:-}\"" 2>/dev/null || true
@@ -80,6 +82,7 @@ paper_env_get() {
   : "${DATA_TAG:=paper_oldbox_live}"
   : "${SYMBOL:=BTC_USD}"
   : "${TIMEFRAME:=5m}"
+  : "${DRY_RUN:=1}"
 
   SYMBOL_PATH="${SYMBOL////_}"
   SYMBOL_PATH="${SYMBOL_PATH//-/_}"
@@ -88,7 +91,6 @@ paper_env_get() {
   : "${HALT_ORDERS_FILE:=${FLAGS_DIR}/HALT}"
   : "${ARM_FILE:=${FLAGS_DIR}/ARM}"
 
-  : "${ARMED:=0}"
   : "${MAX_TRADES_PER_DAY:=0}"
   : "${MAX_DAILY_LOSS_USD:=0}"
   : "${TZ_LOCAL:=America/Los_Angeles}"
@@ -132,13 +134,42 @@ paper_env_get() {
   trade_status="$(svc_is_up trade)"
   dashboard_status="$(svc_is_up dashboard)"
 
-  # --- ARMED truth: prefer running container env if paper is up ---
-  ARMED_SRC="env_file"
+  # --- ARMED truth (single source): ARM_FILE existence ---
+  ARMED_SRC="arm_file"
+  if [[ "$ARM" == "ON" ]]; then
+    ARMED="1"
+  else
+    ARMED="0"
+  fi
+
+  # Debug-only: capture container ARMED env if paper is up (never authoritative)
+  ARMED_ENV="na"
+  ARMED_ENV_MISMATCH="na"
   if [[ "$paper_status" == "up" ]]; then
     v="$(paper_env_get ARMED)"
     if [[ -n "$v" ]]; then
-      ARMED="$v"
-      ARMED_SRC="paper_container"
+      ARMED_ENV="$v"
+      if [[ "$ARMED_ENV" != "$ARMED" ]]; then
+        ARMED_ENV_MISMATCH="1"
+      else
+        ARMED_ENV_MISMATCH="0"
+      fi
+    fi
+  fi
+
+  # --- DRY_RUN truth: from .env (authoritative for reporting) ---
+  DRY_RUN_SRC="env_file"
+  DRY_RUN_ENV="na"
+  DRY_RUN_ENV_MISMATCH="na"
+  if [[ "$paper_status" == "up" ]]; then
+    v="$(paper_env_get DRY_RUN)"
+    if [[ -n "$v" ]]; then
+      DRY_RUN_ENV="$v"
+      if [[ "$DRY_RUN_ENV" != "$DRY_RUN" ]]; then
+        DRY_RUN_ENV_MISMATCH="1"
+      else
+        DRY_RUN_ENV_MISMATCH="0"
+      fi
     fi
   fi
 
@@ -170,8 +201,6 @@ paper_env_get() {
       rc=$?
       set -e
 
-      # Parse key=value tokens from one-liner:
-      # limits_state=... reason=... trades_today=... pnl_today_usd=...
       for tok in $out; do
         case "$tok" in
         limits_state=*) LIMITS_STATE="${tok#limits_state=}" ;;
@@ -191,12 +220,9 @@ paper_env_get() {
     fi
   fi
 
-  # Heartbeat enforcement contract: soft-only
   ENFORCEMENT_MODE="soft"
   ENFORCEMENT_WOULD_STOP="0"
   ENFORCEMENT_ACTION="none"
-
-  # In soft mode we never stop. But we still publish "would stop" intent for auditability.
   if [[ -n "$HALTED_REASON" ]]; then
     ENFORCEMENT_WOULD_STOP="1"
   fi
@@ -307,6 +333,16 @@ PY
     echo "ARMED=${ARMED}"
     echo "armed_src=${ARMED_SRC}"
 
+    # Debug-only arming env signal (never authoritative)
+    echo "armed_env=${ARMED_ENV}"
+    echo "armed_env_mismatch=${ARMED_ENV_MISMATCH}"
+
+    # DRY_RUN reporting (authoritative from env_file + debug from container)
+    echo "DRY_RUN=${DRY_RUN}"
+    echo "dry_run_src=${DRY_RUN_SRC}"
+    echo "dry_run_env=${DRY_RUN_ENV}"
+    echo "dry_run_env_mismatch=${DRY_RUN_ENV_MISMATCH}"
+
     echo "decisions_mtime_utc=${csv_mtime_utc}"
     echo "halted_reason=${HALTED_REASON}"
 
@@ -345,6 +381,6 @@ PY
 
   echo "=== status beacon ==="
   stat -c 'status_mtime=%y size=%s path=%n' "$STATUS_FILE" 2>/dev/null || true
-  tail -n 120 "$STATUS_FILE" || true
+  tail -n 160 "$STATUS_FILE" || true
   echo
 ) 9>"$LOCK"

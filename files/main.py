@@ -472,6 +472,16 @@ def main() -> None:
                 bar_high = 0.0
                 bar_low = 0.0
 
+            # --- RESTART-SAFE IDP: never act on an already-recorded (or older) bar ---
+            if now_ts_ms > 0 and last_decision_ts_ms is not None and now_ts_ms <= int(last_decision_ts_ms):
+                logger.warning(
+                    "SKIP: already-processed bar (restart-safe idempotency)",
+                    extra={"now_ts_ms": int(now_ts_ms), "last_decision_ts_ms": int(last_decision_ts_ms)},
+                )
+                elapsed = time.time() - loop_start
+                time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
+                continue
+
             position = broker.get_tracked_position(
                 symbol=ccxt_symbol,
                 latest_close=float(combined.iloc[-1]["close"]) if rows > 0 and "close" in combined.columns else 0.0,
@@ -533,6 +543,16 @@ def main() -> None:
             ts = latest_row.get("timestamp", None)
             now_ts_ms = int(getattr(ts, "value", 0) // 1_000_000) if ts is not None else 0
             now_iso = ts.isoformat() if hasattr(ts, "isoformat") else ""
+
+            # --- RESTART-SAFE IDP: after feature pipeline, re-check exact bar ts ---
+            if now_ts_ms > 0 and last_decision_ts_ms is not None and now_ts_ms <= int(last_decision_ts_ms):
+                logger.warning(
+                    "SKIP: already-processed bar (restart-safe idempotency)",
+                    extra={"now_ts_ms": int(now_ts_ms), "last_decision_ts_ms": int(last_decision_ts_ms)},
+                )
+                elapsed = time.time() - loop_start
+                time.sleep(max(cfg.loop_sleep_seconds - elapsed, 0.0))
+                continue
 
             position = broker.get_tracked_position(symbol=ccxt_symbol, latest_close=latest_close, latest_atr=latest_atr, atr_mult=float(ATR_MULT))
 
