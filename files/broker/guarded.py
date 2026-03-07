@@ -1,15 +1,22 @@
-# files/broker/guarded.py
 from __future__ import annotations
 
+import csv
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional
 
 from files.broker.base import Broker
 from files.core.types import Position, StrategySide
+from files.data.trades import trades_csv_path
 from files.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+try:
+    from zoneinfo import ZoneInfo  # py3.9+
+except Exception:
+    ZoneInfo = None  # type: ignore
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -34,11 +41,97 @@ def _env_float(name: str, default: float = 0.0) -> float:
         return float(default)
 
 
+def _env_str(name: str, default: str = "") -> str:
+    v = os.environ.get(name)
+    if v is None:
+        return str(default)
+    return str(v).strip()
+
+
 def _exists(path: str) -> bool:
     try:
         return bool(path) and os.path.exists(path)
     except Exception:
         return False
+
+
+def _storage_symbol(symbol: str) -> str:
+    return symbol.strip().upper().replace("/", "_")
+
+
+def _pick_ts_ms(row: dict) -> int | None:
+    for k in ("exit_ts_ms", "entry_ts_ms", "ts_ms"):
+        v = row.get(k)
+        if v is None or v == "":
+            continue
+        try:
+            return int(float(v))
+        except Exception:
+            continue
+    return None
+
+
+def _pick_pnl_usd(row: dict) -> float:
+    for k in ("realized_pnl_usd", "pnl_usd", "realized_pnl"):
+        v = row.get(k)
+        if v is None or v == "":
+            continue
+        try:
+            return float(v)
+        except Exception:
+            continue
+    return 0.0
+
+
+def _daily_limits_exceeded(
+    *,
+    trades_csv: str,
+    max_trades_per_day: float,
+    max_daily_loss_usd: float,
+    tz_name: str,
+) -> tuple[bool, str, int, float]:
+    max_trades = float(max_trades_per_day)
+    max_loss = float(max_daily_loss_usd)
+
+    if max_trades <= 0 and max_loss <= 0:
+        return False, "", 0, 0.0
+
+    if not trades_csv or (not os.path.exists(trades_csv)):
+        return False, "", 0, 0.0
+
+    tz = None
+    if ZoneInfo is not None:
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz = None
+
+    now = datetime.now(tz or timezone.utc)
+    start_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_ms = int(start_day.timestamp() * 1000)
+
+    trades_today = 0
+    pnl_today = 0.0
+
+    try:
+        with open(trades_csv, newline="", encoding="utf-8") as f:
+            r = csv.DictReader(f)
+            for row in r:
+                ts = _pick_ts_ms(row)
+                if ts is None or ts < start_ms:
+                    continue
+                trades_today += 1
+                pnl_today += _pick_pnl_usd(row)
+    except Exception:
+        return False, "read_error", 0, 0.0
+
+    if max_trades > 0 and trades_today >= int(max_trades):
+        return True, f"trades_today={trades_today} cap={int(max_trades)}", trades_today, pnl_today
+
+    if max_loss > 0 and pnl_today <= -float(max_loss):
+        return True, f"pnl_today={pnl_today:.2f} cap=-{float(max_loss):.2f}", trades_today, pnl_today
+
+    return False, "", trades_today, pnl_today
 
 
 @dataclass(frozen=True)
@@ -50,13 +143,18 @@ class Guardrails:
     dry_run: bool
     max_order_usd: float
     max_position_usd: float
+    max_trades_per_day: float
+    max_daily_loss_usd: float
+    tz_local: str
+    data_tag: str
+    timeframe: str
 
     @staticmethod
     def from_env() -> "Guardrails":
-        flags_dir = os.environ.get("FLAGS_DIR", f"{os.path.expanduser('~')}/trade_flags").strip()
-        kill_switch_file = os.environ.get("KILL_SWITCH_FILE", "/tmp/TRADING_STOP").strip()
-        halt_orders_file = os.environ.get("HALT_ORDERS_FILE", "").strip()
-        arm_file = os.environ.get("ARM_FILE", "").strip() or f"{flags_dir}/ARM"
+        flags_dir = _env_str("FLAGS_DIR", f"{os.path.expanduser('~')}/trade_flags")
+        kill_switch_file = _env_str("KILL_SWITCH_FILE", "/tmp/TRADING_STOP")
+        halt_orders_file = _env_str("HALT_ORDERS_FILE", "")
+        arm_file = _env_str("ARM_FILE", "") or f"{flags_dir}/ARM"
 
         return Guardrails(
             flags_dir=flags_dir,
@@ -66,18 +164,34 @@ class Guardrails:
             dry_run=_env_bool("DRY_RUN", False),
             max_order_usd=_env_float("MAX_ORDER_USD", 0.0),
             max_position_usd=_env_float("MAX_POSITION_USD", 0.0),
+            max_trades_per_day=_env_float("MAX_TRADES_PER_DAY", 0.0),
+            max_daily_loss_usd=_env_float("MAX_DAILY_LOSS_USD", 0.0),
+            tz_local=_env_str("TZ_LOCAL", "America/Los_Angeles"),
+            data_tag=_env_str("DATA_TAG", ""),
+            timeframe=_env_str("TIMEFRAME", ""),
         )
 
     def halt_code(self) -> Optional[str]:
-        # Canonical codes (Mission 4)
         if self.kill_switch_file and _exists(self.kill_switch_file):
             return "STOP_BLOCK"
         if self.halt_orders_file and _exists(self.halt_orders_file):
-            return "HALT_ENTRY_BLOCK"
+            return "HALT_BLOCK"
         return None
 
     def is_armed(self) -> bool:
         return _exists(self.arm_file)
+
+    def trades_csv_for_symbol(self, *, symbol: str) -> str:
+        if not self.data_tag or not self.timeframe:
+            return ""
+        try:
+            return trades_csv_path(
+                exchange=self.data_tag,
+                symbol=_storage_symbol(symbol),
+                timeframe=self.timeframe,
+            )
+        except Exception:
+            return ""
 
 
 class GuardedBroker:
@@ -87,13 +201,14 @@ class GuardedBroker:
     Enforces:
       - STOP/HALT flag files => block entries (exits always allowed)
       - file-based ARM gate (single source of truth)
-      - (optional) DRY_RUN gate for real broker
+      - daily limits
+      - optional DRY_RUN gate for real broker
       - USD caps for orders/positions
 
-    Contract (Mission 4 / observability):
+    Contract:
       - open_position(...) returns Optional[str]
           * None => entry allowed + forwarded to inner broker
-          * str  => entry blocked; reason string is machine-safe and should be recorded by caller
+          * str  => entry blocked; caller should record exact reason
     """
 
     def __init__(
@@ -132,22 +247,28 @@ class GuardedBroker:
     ) -> Optional[str]:
         g = Guardrails.from_env()
 
-        # STOP/HALT => EXIT ONLY (reduce-only). Block entries here.
         code = g.halt_code()
         if code:
             if code == "STOP_BLOCK":
                 return f"{code}(kill_switch={g.kill_switch_file})"
             return f"{code}(halt_orders={g.halt_orders_file})"
 
-        # Optional: real broker dry-run gate
         if self._block_on_dry_run and g.dry_run:
             return "DRY_RUN_BLOCK"
 
-        # Single-source arming model: ARM_FILE existence
         if self._require_arm and (not g.is_armed()):
             return f"ARM_BLOCK(arm_file={g.arm_file})"
 
-        # Validate order inputs
+        trades_csv = g.trades_csv_for_symbol(symbol=symbol)
+        exceeded, why, _, _ = _daily_limits_exceeded(
+            trades_csv=trades_csv,
+            max_trades_per_day=g.max_trades_per_day,
+            max_daily_loss_usd=g.max_daily_loss_usd,
+            tz_name=g.tz_local,
+        )
+        if exceeded:
+            return f"DAILY_LIMIT_BLOCK({why})"
+
         try:
             px = float(entry_price)
             qty = float(size)
@@ -157,12 +278,10 @@ class GuardedBroker:
         if px <= 0 or qty <= 0:
             return "BAD_INPUTS"
 
-        # Order USD cap
         order_usd = px * qty
         if g.max_order_usd > 0 and order_usd > g.max_order_usd:
             return f"MAX_ORDER_USD_BLOCK(order_usd={order_usd:.2f} cap={g.max_order_usd:.2f})"
 
-        # Position USD cap (covers future scale-in support)
         pos = self._inner.get_tracked_position(symbol=symbol)
         existing_qty = float(pos.qty) if pos is not None else 0.0
         position_usd = px * (existing_qty + qty)
@@ -170,8 +289,6 @@ class GuardedBroker:
             return f"MAX_POSITION_USD_BLOCK(position_usd={position_usd:.2f} cap={g.max_position_usd:.2f})"
 
         return None
-
-    # ---- Broker passthroughs + guarded entry ----
 
     def get_tracked_position(
         self,
@@ -270,7 +387,6 @@ class GuardedBroker:
         reason: str,
         exit_ts_ms: Optional[int] = None,
     ) -> dict:
-        # EXIT ONLY behavior: always allow exits (even if halted). This is safer.
         return self._inner.realize_and_close(
             symbol=symbol,
             exit_price=exit_price,

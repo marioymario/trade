@@ -1,57 +1,73 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage:
-#   ops/deploy_oldbox.sh kk7wus@10.0.0.222 2222
-#
-# Deploys the current git HEAD to old-box via rsync, excluding .env and data/.
-# Refuses to run if working tree is dirty.
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EXCLUDE_FILE="${ROOT_DIR}/ops/rsync_exclude.txt"
 
-TARGET_HOST="${1:-}"
-SSH_PORT="${2:-2222}"
+OLD_BOX_HOST="${OLD_BOX_HOST:-}"
+OLD_BOX_DIR="${OLD_BOX_DIR:-}"
+RSYNC_SSH_OPTS="${RSYNC_SSH_OPTS:-}"
+RSYNC_EXTRA_OPTS="${RSYNC_EXTRA_OPTS:-}"
+MODE="${1:-}"
 
-if [[ -z "$TARGET_HOST" ]]; then
-  echo "usage: $0 <user@host> [ssh_port]" >&2
+if [[ -z "${OLD_BOX_HOST}" || -z "${OLD_BOX_DIR}" ]]; then
+  echo "ERROR: set OLD_BOX_HOST and OLD_BOX_DIR"
+  echo "Example:"
+  echo "  OLD_BOX_HOST=kk7wus@old-box OLD_BOX_DIR=~/Projects/trade $0 --dry-run"
   exit 2
 fi
 
-cd "$(git rev-parse --show-toplevel)" || exit 1
-
-# Must be a git repo
-git rev-parse --is-inside-work-tree >/dev/null
-
-# Refuse dirty tree
-if [[ -n "$(git status --porcelain)" ]]; then
-  echo "ERROR: working tree is dirty. Commit or stash before deploy." >&2
-  git status --porcelain >&2
-  exit 1
+if [[ ! -f "${EXCLUDE_FILE}" ]]; then
+  echo "ERROR: missing ${EXCLUDE_FILE}"
+  exit 2
 fi
 
-BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-COMMIT="$(git rev-parse HEAD)"
-SHORT="$(git rev-parse --short HEAD)"
+cd "${ROOT_DIR}"
 
-echo "Deploying branch=${BRANCH} commit=${COMMIT} to ${TARGET_HOST}:${SSH_PORT}"
+SSH_CMD="ssh"
+if [[ -n "${RSYNC_SSH_OPTS}" ]]; then
+  SSH_CMD="ssh ${RSYNC_SSH_OPTS}"
+fi
 
-# Write deploy marker into ops/ (excluded from gitignore) and sync it too
-DEPLOY_MARKER="ops/DEPLOYED_${SHORT}.txt"
-{
-  echo "ts_utc=$(date -u -Is | sed 's/+00:00/Z/')"
-  echo "branch=${BRANCH}"
-  echo "commit=${COMMIT}"
-  echo "short=${SHORT}"
-} > "${DEPLOY_MARKER}"
+# Make rsync boring:
+# - no delete (ever)
+# - don't fail on directory timestamp updates (common on some FS/permissions)
+RSYNC_BASE=(
+  rsync -az
+  --no-perms --no-owner --no-group
+  --omit-dir-times
+  --itemize-changes
+  --human-readable
+  --exclude-from="${EXCLUDE_FILE}"
+  -e "${SSH_CMD}"
+)
 
-# Rsync repo contents excluding local-only/runtime data
-rsync -av --progress -e "ssh -p ${SSH_PORT}" \
-  --delete \
-  --exclude '.git/' \
-  --exclude '.env' \
-  --exclude 'data/' \
-  --exclude '__pycache__/' \
-  --exclude '*.pyc' \
-  ./ "${TARGET_HOST}:~/Projects/trade/"
+if [[ -n "${RSYNC_EXTRA_OPTS}" ]]; then
+  # shellcheck disable=SC2206
+  RSYNC_BASE+=( ${RSYNC_EXTRA_OPTS} )
+fi
 
+SRC="${ROOT_DIR}/"
+DST="${OLD_BOX_HOST}:${OLD_BOX_DIR%/}/"
+
+echo "=== deploy_oldbox ==="
+echo "root=${ROOT_DIR}"
+echo "src=${SRC}"
+echo "dst=${DST}"
+echo "exclude=${EXCLUDE_FILE}"
+echo "mode=${MODE:-deploy}"
+echo
+
+if [[ "${MODE}" == "--dry-run" ]]; then
+  echo "=== RSYNC DRY RUN (no delete) ==="
+  "${RSYNC_BASE[@]}" --dry-run --checksum "${SRC}" "${DST}"
+  echo
+  echo "PASS expectation: runtime-only paths must not appear in the itemized list."
+  exit 0
+fi
+
+echo "=== RSYNC DEPLOY (no delete) ==="
+"${RSYNC_BASE[@]}" "${SRC}" "${DST}"
+
+echo
 echo "Done."
-echo "Marker synced: ${DEPLOY_MARKER}"
-

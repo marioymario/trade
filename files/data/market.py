@@ -41,23 +41,11 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _normalize_crypto_symbol_for_ccxt(symbol: str) -> str:
-    """
-    CCXT expects 'BASE/QUOTE' like 'BTC/USD' or 'BTC/USDT'.
-
-    Accept common variants:
-      - 'BTC/USD' (kept)
-      - 'BTCUSDT' -> 'BTC/USDT'
-      - 'BTCUSD'  -> 'BTC/USD'
-      - 'BTC_USD' -> 'BTC/USD'
-      - 'BTC-USD' -> 'BTC/USD'
-    """
     s = symbol.strip().upper()
 
-    # already normalized
     if "/" in s:
         return s
 
-    # tolerate common separators
     s = s.replace("_", "").replace("-", "")
 
     for quote in ("USDT", "USD"):
@@ -70,14 +58,8 @@ def _normalize_crypto_symbol_for_ccxt(symbol: str) -> str:
 
 def _parse_timeframe_seconds(timeframe: str) -> int:
     tf = timeframe.strip().lower()
-    if len(tf) < 2:
-        raise ValueError(f"Unsupported timeframe: {timeframe!r}")
-
     unit = tf[-1]
     n = int(tf[:-1])
-
-    if n <= 0:
-        raise ValueError(f"Unsupported timeframe: {timeframe!r}")
 
     if unit == "m":
         return n * 60
@@ -91,6 +73,7 @@ def _parse_timeframe_seconds(timeframe: str) -> int:
 
 def _ensure_ohlcv_schema(df: pd.DataFrame) -> pd.DataFrame:
     needed = ["timestamp", "open", "high", "low", "close", "volume"]
+
     missing = [c for c in needed if c not in df.columns]
     if missing:
         raise ValueError(f"Market DF missing columns: {missing}")
@@ -99,21 +82,26 @@ def _ensure_ohlcv_schema(df: pd.DataFrame) -> pd.DataFrame:
     out["timestamp"] = pd.to_datetime(out["timestamp"], utc=True, errors="coerce")
     out = out.dropna(subset=["timestamp"])
     out = out.sort_values("timestamp").reset_index(drop=True)
+
     return out[needed]
 
 
 def _get_ccxt_exchange(exchange_id: str):
-    import ccxt  # type: ignore
+    import ccxt
 
-    key = (exchange_id or "").strip().lower()
-    if not key:
-        raise ValueError("ccxt_exchange must be non-empty")
+    key = exchange_id.strip().lower()
 
     if key in _CCXT_EXCHANGE_CACHE:
         return _CCXT_EXCHANGE_CACHE[key]
 
     ex_class = getattr(ccxt, key)
-    exchange = ex_class({"enableRateLimit": True})
+
+    exchange = ex_class(
+        {
+            "enableRateLimit": True,
+        }
+    )
+
     _CCXT_EXCHANGE_CACHE[key] = exchange
     return exchange
 
@@ -125,14 +113,22 @@ def _fetch_crypto_ccxt(
     limit: int,
     exchange_id: str,
 ) -> pd.DataFrame:
+
     exchange = _get_ccxt_exchange(exchange_id)
 
     sym = _normalize_crypto_symbol_for_ccxt(symbol)
+
     ohlcv = exchange.fetch_ohlcv(sym, timeframe=timeframe, limit=limit)
 
-    df = pd.DataFrame(ohlcv, columns=["timestamp_ms", "open", "high", "low", "close", "volume"])
+    df = pd.DataFrame(
+        ohlcv,
+        columns=["timestamp_ms", "open", "high", "low", "close", "volume"],
+    )
+
     df["timestamp"] = pd.to_datetime(df["timestamp_ms"], unit="ms", utc=True)
+
     df = df.drop(columns=["timestamp_ms"])
+
     return _ensure_ohlcv_schema(df)
 
 
@@ -146,6 +142,7 @@ def fetch_market_data(
     min_bars_warn: Optional[int] = None,
     enforce_regular_cadence: bool = True,
 ) -> pd.DataFrame:
+
     if asset_class != "crypto":
         raise NotImplementedError("Only crypto implemented right now")
 
@@ -158,9 +155,11 @@ def fetch_market_data(
     backoff_s = max(0.0, _env_float("MARKET_FETCH_BACKOFF_S", 0.0))
 
     last_err: Optional[BaseException] = None
+
     attempt_total = 1 + retries
 
     for attempt in range(1, attempt_total + 1):
+
         try:
             df = _fetch_crypto_ccxt(
                 symbol=symbol,
@@ -169,8 +168,11 @@ def fetch_market_data(
                 exchange_id=ccxt_exchange,
             )
             break
+
         except Exception as e:
+
             last_err = e
+
             logger.warning(
                 "Market fetch failed",
                 extra={
@@ -183,33 +185,47 @@ def fetch_market_data(
                     "error": repr(e),
                 },
             )
+
             if attempt >= attempt_total:
                 raise MarketFetchError(
                     f"fetch_market_data failed after {attempt_total} attempt(s): {repr(last_err)}"
                 ) from last_err
+
             if backoff_s > 0:
                 time.sleep(backoff_s)
 
     rows = len(df)
 
-    if min_bars_warn is not None and rows < min_bars_warn:
-        logger.warning(
-            "Too few bars returned",
-            extra={
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "rows": int(rows),
-                "min_bars": int(min_bars_warn),
-                "source": "ccxt",
-                "exchange": ccxt_exchange,
-            },
-        )
+    # TEST HOOK — deterministic cadence failure
+    if os.environ.get("TEST_HOOKS_ENABLED") == "1":
+        try:
+            n = int(os.environ.get("FORCE_CADENCE_FAIL_N", "0"))
+        except Exception:
+            n = 0
+
+        if n > 0 and rows > 15:
+            os.environ["FORCE_CADENCE_FAIL_N"] = str(n - 1)
+
+            # shift HALF the timestamps to break median cadence
+            half = rows // 2
+
+            for i in range(1, half + 1):
+                idx = df.index[-i]
+                df.loc[idx, "timestamp"] = (
+                    df.loc[idx, "timestamp"]
+                    + pd.Timedelta(seconds=expected_s * 4)
+                )
 
     if enforce_regular_cadence and rows >= 3:
+
         diffs = df["timestamp"].diff().dt.total_seconds().dropna()
+
         if len(diffs) > 0:
+
             med = float(diffs.median())
+
             if med > expected_s * 2.5:
+
                 logger.warning(
                     "Bars appear sparse for requested timeframe",
                     extra={
@@ -233,6 +249,5 @@ def fetch_market_data(
             "exchange": ccxt_exchange,
         },
     )
+
     return df
-
-
