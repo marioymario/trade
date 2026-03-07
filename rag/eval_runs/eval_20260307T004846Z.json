@@ -1,0 +1,52 @@
+[
+  {
+    "id": 1,
+    "section": "Docs / operator",
+    "question": "Explain the operator workflow.",
+    "expectation": "Grounded summary from docs/OPERATOR.md.",
+    "kind": "docs_strong_source",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nThe operator workflow is command-only and failure-oriented. If something is wrong, you should start at the top of the guide and work downward.\n\nSources:\ndocs/OPERATOR.md"
+  },
+  {
+    "id": 2,
+    "section": "Docs / operator",
+    "question": "What is this repo?",
+    "expectation": "Repo-level summary from strongest doc source, not generic coding filler.",
+    "kind": "docs_grounded",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nThis repo is for a RAG (Retrieval-Augmented Generation) assistant that helps with tasks using repo-grounded answers instead of generic coding knowledge.\n\nSources:\nrag/README.md"
+  },
+  {
+    "id": 3,
+    "section": "Docs / operator",
+    "question": "What does the handoff say the RAG is for?",
+    "expectation": "Grounded answer from handoff/RAG docs only.",
+    "kind": "docs_grounded_or_refusal",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\n- rag/README_rag_eval_set.md"
+  },
+  {
+    "id": 4,
+    "section": "Docs / operator",
+    "question": "What is the deploy/use rhythm for the RAG?",
+    "expectation": "Short answer from README/handoff, cited.",
+    "kind": "docs_grounded",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nThe deploy/use rhythm for the RAG is managed through the `rag.sh` script. Key operations include starting an interactive prompt, asking questions, rebuilding the vector index, and checking container status. The script uses Docker Compose to manage the RAG service defined in `docker-compose.rag.yml`.\n\nSources:\nrag/README.md"
+  },
+  {
+    "id": 5,
+    "section": "Symbol / definition lookup",
+    "question": "Where is GuardedBroker defined?",
+    "expectation": "files/broker/guarded.py",
+    "kind": "definition_exact",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nDefined in `files/broker/guarded.py`.\n\nSources:\n- files/broker/guarded.py"
+  }
+]

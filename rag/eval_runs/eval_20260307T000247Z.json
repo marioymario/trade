@@ -1,0 +1,65 @@
+[
+  {
+    "id": 1,
+    "section": "Docs / operator",
+    "question": "Explain the operator workflow.",
+    "expectation": "Grounded summary from docs/OPERATOR.md.",
+    "kind": "docs_strong_source",
+    "status": "FAIL",
+    "notes": [
+      "missing sources",
+      "topical doc source missing"
+    ],
+    "answer": "Answer:\nThe operator workflow is command-only and failure-oriented. If something is wrong, start at the top of the guide and work downward.\n\nSources:\ndocs/OPERATOR.md"
+  },
+  {
+    "id": 2,
+    "section": "Docs / operator",
+    "question": "What is this repo?",
+    "expectation": "Repo-level summary from strongest doc source, not generic coding filler.",
+    "kind": "docs_grounded",
+    "status": "FAIL",
+    "notes": [
+      "missing sources",
+      "docs answer missing plausible doc sources"
+    ],
+    "answer": "Answer:\nThis repository is for evaluating RAG (Retrieval-Augmented Generation) systems to catch regressions in repo grounding, refusal behavior, docs reliability, and source quality.\n\nSources:\nrag/README.md"
+  },
+  {
+    "id": 3,
+    "section": "Docs / operator",
+    "question": "What does the handoff say the RAG is for?",
+    "expectation": "Grounded answer from handoff/RAG docs only.",
+    "kind": "docs_grounded",
+    "status": "FAIL",
+    "notes": [
+      "missing sources",
+      "docs answer missing plausible doc sources"
+    ],
+    "answer": "Answer:\nThe handoff states that the RAG is for collecting uninterrupted clean cadence so health becomes OK with no grace warnings.\n\nSources:\nHANDOFF.md"
+  },
+  {
+    "id": 4,
+    "section": "Docs / operator",
+    "question": "What is the deploy/use rhythm for the RAG?",
+    "expectation": "Short answer from README/handoff, cited.",
+    "kind": "docs_grounded",
+    "status": "FAIL",
+    "notes": [
+      "docs answer missing plausible doc sources"
+    ],
+    "answer": "Answer:\nThe RAG (Retrieval-Augmented Generation) system is deployed and used through the `rag.sh` script located in the `rag` directory. The script manages the Docker container using the `docker-compose.rag.yml` configuration file.\n\n1. **Deployment**: When you run `./rag.sh` without any arguments, it ensures that the RAG service is up and running using Docker Compose and then executes `python query.py` to interact with the system.\n\n2. **Indexing/Reindexing**: If you run `./rag.sh index` or `./rag.sh reindex`, it ensures the RAG service is up and runs `python ingest_repo.py` to index the repository.\n\n3. **Querying**: For other commands or no arguments, it runs `python query.py` with the provided arguments or without any if none are given.\n\nSources:\n- rag/rag.sh\n- docker-compose.rag.yml"
+  },
+  {
+    "id": 5,
+    "section": "Symbol / definition lookup",
+    "question": "Where is GuardedBroker defined?",
+    "expectation": "files/broker/guarded.py",
+    "kind": "definition_exact",
+    "status": "FAIL",
+    "notes": [
+      "answer missing expected exact phrase"
+    ],
+    "answer": "Answer:\nDefined in files/broker/guarded.py.\n\nSources:\n- files/broker/guarded.py"
+  }
+]

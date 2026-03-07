@@ -1,0 +1,206 @@
+[
+  {
+    "id": 1,
+    "section": "Docs / operator",
+    "question": "Explain the operator workflow.",
+    "expectation": "Grounded summary from docs/OPERATOR.md.",
+    "kind": "docs_strong_source",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nThe operator workflow is described as a command-only, failure-oriented guide. It advises starting at the top of the guide and working downward if something is wrong.\n\nSources:\ndocs/OPERATOR.md"
+  },
+  {
+    "id": 2,
+    "section": "Docs / operator",
+    "question": "What is this repo?",
+    "expectation": "Repo-level summary from strongest doc source, not generic coding filler.",
+    "kind": "docs_grounded",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nThis repo is a repository-aware software engineering assistant designed to help with tasks related to the repo itself using information grounded in the repo's context. It aims to answer questions based solely on the provided repository information, without resorting to generic coding knowledge.\n\nSources:\nrag/README.md"
+  },
+  {
+    "id": 3,
+    "section": "Docs / operator",
+    "question": "What does the handoff say the RAG is for?",
+    "expectation": "Grounded answer from handoff/RAG docs only.",
+    "kind": "docs_grounded_or_refusal",
+    "status": "REVIEW",
+    "notes": [
+      "refused despite plausible doc source"
+    ],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\nhandoff/RAG docs"
+  },
+  {
+    "id": 4,
+    "section": "Docs / operator",
+    "question": "What is the deploy/use rhythm for the RAG?",
+    "expectation": "Short answer from README/handoff, cited.",
+    "kind": "docs_grounded",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nThe RAG is deployed using Docker Compose with the command `./rag/rag.sh` to start the interactive prompt. It can also be used to ask questions, rebuild the vector index, show container status, or display help.\n\nSources:\nrag/README.md"
+  },
+  {
+    "id": 5,
+    "section": "Symbol / definition lookup",
+    "question": "Where is GuardedBroker defined?",
+    "expectation": "files/broker/guarded.py",
+    "kind": "definition_exact",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nDefined in `files/broker/guarded.py`.\n\nSources:\n- files/broker/guarded.py"
+  },
+  {
+    "id": 6,
+    "section": "Symbol / definition lookup",
+    "question": "Where is validate_latest_features defined?",
+    "expectation": "files/data/features.py",
+    "kind": "definition_exact",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nDefined in `files/data/features.py`.\n\nSources:\n- files/data/features.py"
+  },
+  {
+    "id": 7,
+    "section": "Symbol / definition lookup",
+    "question": "Where is fetch_market_data defined?",
+    "expectation": "files/data/market.py",
+    "kind": "definition_exact",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nDefined in `files/data/market.py`.\n\nSources:\n- files/data/market.py"
+  },
+  {
+    "id": 8,
+    "section": "Symbol / definition lookup",
+    "question": "Where is open_position defined?",
+    "expectation": "Precise answer or disciplined multiple candidates.",
+    "kind": "definition_flexible",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nMultiple definition candidates found.\n\nSources:\n- files/broker/guarded.py\n- files/broker/paper.py\n- files/broker/base.py"
+  },
+  {
+    "id": 9,
+    "section": "Symbol / definition lookup",
+    "question": "Where is entry_blocked_reason written?",
+    "expectation": "Exact file if provable, otherwise refusal.",
+    "kind": "definition_or_refusal",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\n- files/main.py\n- rag/README_rag_eval_set.md\n- rag/query.py (function: _trace_source_list_lines)\n- files/config.py (function: _require_in_allowlist)\n- rag/query.py (function: answer_question)\n- files/broker/guarded.py (class: GuardedBroker)"
+  },
+  {
+    "id": 10,
+    "section": "Trace / path questions",
+    "question": "Trace fetch_market_data to broker.open_position.",
+    "expectation": "Safe refusal unless full grounded path is actually present.",
+    "kind": "trace_safe",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\n- files/data/market.py (function: fetch_market_data)\n- files/broker/base.py (class: Broker)\n- files/broker/guarded.py (function: open_position)"
+  },
+  {
+    "id": 11,
+    "section": "Trace / path questions",
+    "question": "Trace ARM gating to blocked entry.",
+    "expectation": "Grounded partial path or refusal; no invented bridge steps.",
+    "kind": "trace_safe",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\n- files/broker/guarded.py (class: GuardedBroker)\n- rag/README_rag_eval_set.md\n- dashboard/app.py\n- files/broker/guarded.py\n- files/broker/guarded.py (class: Guardrails)\n- files/broker/paper.py (class: PaperBroker)"
+  },
+  {
+    "id": 12,
+    "section": "Trace / path questions",
+    "question": "Trace decision generation to decisions.csv.",
+    "expectation": "Grounded path only if directly supported; otherwise refusal.",
+    "kind": "trace_safe",
+    "status": "REVIEW",
+    "notes": [
+      "refusal sources do not look relevant"
+    ],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\n- files/data/decisions.py (function: append_decision_csv)\n- files/data/decisions.py (function: _read_last_ts_ms_from_decisions_csv)\n- files/data/decisions.py (module)\n- files/data/paths.py (function: decisions_csv_path)\n- files/main_live_vs_backtest_equivalence.py (function: compare_decisions_by_ts)\n- files/backtest/engine.py (function: _read_last_ts_ms_from_decisions_csv)"
+  },
+  {
+    "id": 13,
+    "section": "Trace / path questions",
+    "question": "What calls GuardedBroker.open_position?",
+    "expectation": "Precise caller if supported; otherwise refusal.",
+    "kind": "trace_safe",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\n- files/broker/guarded.py (class: GuardedBroker)\n- files/broker/guarded.py (function: open_position)"
+  },
+  {
+    "id": 14,
+    "section": "Negative tests",
+    "question": "Where is MoonBroker defined?",
+    "expectation": "Insufficient repository context.",
+    "kind": "must_refuse",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\n- files/broker/paper.py (class: PaperBroker)\n- files/broker/guarded.py (class: GuardedBroker)\n- files/broker/guarded.py (function: _exists)\n- rag/README_rag_eval_set.md\n- files/data/decisions.py\n- rag/ingest_repo.py (function: _iter_python_imports)"
+  },
+  {
+    "id": 15,
+    "section": "Negative tests",
+    "question": "Trace foo_bar_baz to quantum_entry_gate.",
+    "expectation": "Insufficient repository context.",
+    "kind": "must_refuse",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\n- rag/README_rag_eval_set.md\n- files/broker/guarded.py (class: GuardedBroker)\n- rag/query.py (function: _grep_fallback_docs)\n- rag/query.py (function: _trace_question)\n- files/broker/base.py (class: Broker)\n- files/strategy/rules.py (function: compute_initial_stop)"
+  },
+  {
+    "id": 16,
+    "section": "Negative tests",
+    "question": "Explain the Kubernetes deployment for this repo.",
+    "expectation": "Refusal unless repo actually contains that context.",
+    "kind": "must_refuse_or_grounded",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\nrag/README.md"
+  },
+  {
+    "id": 17,
+    "section": "Source quality",
+    "question": "Explain the operator workflow.",
+    "expectation": "Do not widen into weak extras when docs/OPERATOR.md is enough.",
+    "kind": "docs_strong_source",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nThe operator workflow involves starting at the top of the OPERATOR.md guide and working downward when encountering issues with the system. This is a command-only, failure-oriented approach.\n\nSources:\ndocs/OPERATOR.md"
+  },
+  {
+    "id": 18,
+    "section": "Source quality",
+    "question": "Trace fetch_market_data to broker.open_position.",
+    "expectation": "No noisy or repetitive source list.",
+    "kind": "trace_safe",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\n- files/data/market.py (function: fetch_market_data)\n- files/broker/base.py (class: Broker)\n- files/broker/guarded.py (function: open_position)"
+  },
+  {
+    "id": 19,
+    "section": "Source quality",
+    "question": "Where is GuardedBroker defined?",
+    "expectation": "Do not answer one file and cite another.",
+    "kind": "definition_exact",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nDefined in `files/broker/guarded.py`.\n\nSources:\n- files/broker/guarded.py"
+  },
+  {
+    "id": 20,
+    "section": "Source quality",
+    "question": "What is this repo?",
+    "expectation": "Grounded repo summary, not generic filler.",
+    "kind": "docs_grounded",
+    "status": "PASS",
+    "notes": [],
+    "answer": "Answer:\nThis repo is for a repository-aware software engineering assistant (RAG) designed to help with tasks within the repo using repo-grounded answers instead of generic coding knowledge.\n\nSources:\nrag/README.md"
+  }
+]

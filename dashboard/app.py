@@ -161,7 +161,7 @@ def _can_write_dir(d: Path) -> bool:
         d.mkdir(parents=True, exist_ok=True)
         p = d / ".write_test.tmp"
         p.write_text("ok")
-        p.unlink(missing_ok=True)
+        p.unlink(missing_ok=True)  # py3.8+; if older, except below will catch
         return True
     except Exception:
         return False
@@ -171,7 +171,7 @@ def _set_flag(flag_path: Path, on: bool) -> tuple[bool, str]:
     try:
         flag_path.parent.mkdir(parents=True, exist_ok=True)
         if on:
-            flag_path.write_text("")
+            flag_path.write_text("")  # create or truncate
         else:
             try:
                 flag_path.unlink()
@@ -180,25 +180,6 @@ def _set_flag(flag_path: Path, on: bool) -> tuple[bool, str]:
         return True, "ok"
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
-
-
-def _mount_kind_for(path: str) -> str:
-    target = (path or "").strip()
-    if not target:
-        return "unknown"
-    try:
-        txt = Path("/proc/self/mountinfo").read_text(errors="replace")
-    except Exception:
-        return "unknown"
-
-    for line in txt.splitlines():
-        parts = line.split()
-        if len(parts) < 10:
-            continue
-        mount_point = parts[4]
-        if mount_point == target:
-            return "bind-mounted"
-    return "image-baked"
 
 
 def build_event_tables(
@@ -480,7 +461,7 @@ status_path = flags_path / "status.txt"
 status_txt = _read_text(status_path)
 status_kv = parse_kv_text(status_txt)
 
-# Derive canonical flag file paths
+# Derive canonical flag file paths (what old-box uses)
 kill_switch_file = Path(os.environ.get("KILL_SWITCH_FILE", str(flags_path / "STOP")))
 halt_orders_file = Path(os.environ.get("HALT_ORDERS_FILE", str(flags_path / "HALT")))
 arm_file = Path(os.environ.get("ARM_FILE", str(flags_path / "ARM")))
@@ -586,10 +567,7 @@ last_pnl = last_trade.get("realized_pnl_usd") if last_trade is not None and "rea
 STOP = status_kv.get("STOP", "na")
 HALT = status_kv.get("HALT", "na")
 ARM = status_kv.get("ARM", "na")
-ARMED = status_kv.get("ARMED", "na")
-ARMED_SRC = status_kv.get("armed_src", "na")
-ARMED_ENV = status_kv.get("armed_env", "na")
-ARMED_ENV_MISMATCH = status_kv.get("armed_env_mismatch", "na")
+ARMED = status_kv.get("ARMED", status_kv.get("armed", "na"))
 DRY_RUN = status_kv.get("DRY_RUN", status_kv.get("dry_run", "na"))
 
 paper_status = status_kv.get("paper_status", "na")
@@ -605,8 +583,7 @@ limits_reason = status_kv.get("limits_reason", "")
 trades_today = status_kv.get("trades_today", "")
 pnl_today_usd = status_kv.get("pnl_today_usd", "")
 
-code_source = _mount_kind_for("/app")
-
+# staleness check (prevents "stale beacon" confusion)
 age_sec = None
 try:
     dt = _parse_utc_iso(beacon_ts)
@@ -672,21 +649,19 @@ with st.container():
         elif (limits_state or "").strip().lower() == "disabled":
             st.info("Limits: disabled (MAX_TRADES_PER_DAY<=0 and MAX_DAILY_LOSS_USD<=0)")
 
-        pills = [
-            pill("STOP", STOP, tone_on_off(STOP)),
-            pill("HALT", HALT, tone_on_off(HALT)),
-            pill("ARM", ARM, "good" if (ARM or "").upper() == "ON" else "warn"),
-            pill("ARMED", ARMED, "good" if (ARMED or "").strip() == "1" else "warn"),
-            pill("armed_src", ARMED_SRC, "info"),
-            pill("DRY_RUN", DRY_RUN, "good" if (DRY_RUN or "").strip() == "1" else "warn"),
-            pill("code", code_source, "good" if code_source == "bind-mounted" else "warn"),
-            pill(fresh_label, fresh_value, fresh_tone),
-        ]
-        if (ARMED_ENV_MISMATCH or "").strip() == "1":
-            pills.insert(5, pill("armed_env", ARMED_ENV, "warn"))
-            pills.insert(6, pill("armed_env_mismatch", ARMED_ENV_MISMATCH, "bad"))
-
-        st.markdown(" ".join(pills), unsafe_allow_html=True)
+        st.markdown(
+            " ".join(
+                [
+                    pill("STOP", STOP, tone_on_off(STOP)),
+                    pill("HALT", HALT, tone_on_off(HALT)),
+                    pill("ARM", ARM, "good" if (ARM or "").upper() == "ON" else "warn"),
+                    pill("ARMED", ARMED, "good" if (ARMED or "").strip() == "1" else "warn"),
+                    pill("DRY_RUN", DRY_RUN, "good" if (DRY_RUN or "").strip() == "1" else "warn"),
+                    pill(fresh_label, fresh_value, fresh_tone),
+                ]
+            ),
+            unsafe_allow_html=True,
+        )
 
         st.markdown(
             " ".join(

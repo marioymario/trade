@@ -18,24 +18,26 @@ conda-meta/
 .env.*
 !.env.example
 
-# Data (ignore big stuff, keep package files like data/__init__.py)
-data/cache/
-data/raw/
-data/processed/
+# Runtime/operator state (never commit)
+trade_flags/
+ops/logs/
+
+# Data (ignore live/big; repo code can still live elsewhere)
+data/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Editor (optional)
+# Editor
 *.swp
 *.swo
 .vscode/
 
-
-data/
-
 # local share helpers (do not commit)
 requestedfiles.sh
 requestedfiles.txt
-ops/logs/
+
+# RAG 
+rag-cache/
+vector_db/

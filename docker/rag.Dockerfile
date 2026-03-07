@@ -1,0 +1,21 @@
+#docker/rag.Dockerfile
+FROM python:3.11
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV TOKENIZERS_PARALLELISM=false
+ENV HF_HUB_DISABLE_TELEMETRY=1
+ENV HF_HUB_DISABLE_PROGRESS_BARS=1
+ENV TRANSFORMERS_VERBOSITY=error
+ENV PYTHONWARNINGS=ignore
+ENV TQDM_DISABLE=1
+
+WORKDIR /app
+
+COPY rag/requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY rag /app
+
+CMD ["sleep", "infinity"]

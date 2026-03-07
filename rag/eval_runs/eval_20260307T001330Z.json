@@ -1,0 +1,65 @@
+[
+  {
+    "id": 1,
+    "section": "Docs / operator",
+    "question": "Explain the operator workflow.",
+    "expectation": "Grounded summary from docs/OPERATOR.md.",
+    "kind": "docs_strong_source",
+    "status": "FAIL",
+    "notes": [
+      "missing sources",
+      "topical doc source missing"
+    ],
+    "answer": "Answer:\nThe operator workflow is command-only and failure-oriented. If something is wrong, start at the top of the guide and work downward.\n\nSources:\ndocs/OPERATOR.md"
+  },
+  {
+    "id": 2,
+    "section": "Docs / operator",
+    "question": "What is this repo?",
+    "expectation": "Repo-level summary from strongest doc source, not generic coding filler.",
+    "kind": "docs_grounded",
+    "status": "FAIL",
+    "notes": [
+      "missing sources",
+      "docs answer missing plausible doc sources"
+    ],
+    "answer": "Answer:\nThis repo is for evaluating RAG (Retrieval-Augmented Generation) systems, focusing on catching regressions in repo grounding, refusal behavior, docs reliability, and source quality.\n\nSources:\nrag/README.md"
+  },
+  {
+    "id": 3,
+    "section": "Docs / operator",
+    "question": "What does the handoff say the RAG is for?",
+    "expectation": "Grounded answer from handoff/RAG docs only.",
+    "kind": "docs_grounded",
+    "status": "FAIL",
+    "notes": [
+      "missing sources",
+      "refused docs question"
+    ],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\nrag/eval_runs/eval_20260307T000944Z.md"
+  },
+  {
+    "id": 4,
+    "section": "Docs / operator",
+    "question": "What is the deploy/use rhythm for the RAG?",
+    "expectation": "Short answer from README/handoff, cited.",
+    "kind": "docs_grounded",
+    "status": "FAIL",
+    "notes": [
+      "refused docs question"
+    ],
+    "answer": "Answer:\nInsufficient repository context.\n\nSources:\n- rag/eval_runs/eval_20260307T000944Z.md\n- rag/eval_runs/eval_20260307T000350Z.md\n- rag/eval_runs/eval_20260307T000247Z.md"
+  },
+  {
+    "id": 5,
+    "section": "Symbol / definition lookup",
+    "question": "Where is GuardedBroker defined?",
+    "expectation": "files/broker/guarded.py",
+    "kind": "definition_exact",
+    "status": "FAIL",
+    "notes": [
+      "answer missing expected exact phrase"
+    ],
+    "answer": "Answer:\nDefined in files/broker/guarded.py.\n\nSources:\n- files/broker/guarded.py"
+  }
+]
