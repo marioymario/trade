@@ -1,5 +1,4 @@
 services:
-  # Tooling container: Jupyter + one-off commands via `docker compose run --rm trade ...`
   trade:
     build:
       context: .
@@ -22,6 +21,16 @@ services:
       FEE_BPS: ${FEE_BPS:-8}
       SLIPPAGE_BPS: ${SLIPPAGE_BPS:-5}
       COOLDOWN_BARS: ${COOLDOWN_BARS:-1}
+
+      # TEST HOOKS (default OFF)
+      TEST_HOOKS_ENABLED: ${TEST_HOOKS_ENABLED:-0}
+      FORCE_ENTRY_SIGNAL_ONCE: ${FORCE_ENTRY_SIGNAL_ONCE:-0}
+      FORCE_COOLDOWN_BLOCK_ONCE: ${FORCE_COOLDOWN_BLOCK_ONCE:-0}
+      FORCE_COOLDOWN_BARS: ${FORCE_COOLDOWN_BARS:-0}
+      FORCE_FEATURES_INVALID_N: ${FORCE_FEATURES_INVALID_N:-0}
+      FORCE_CADENCE_FAIL_N: ${FORCE_CADENCE_FAIL_N:-0}
+      BYPASS_FEATURE_VALIDATION: ${BYPASS_FEATURE_VALIDATION:-0}
+
       TF_ENABLE_ONEDNN_OPTS: 0
       TF_CPP_MIN_LOG_LEVEL: 2
       TZ: America/Los_Angeles
@@ -37,7 +46,6 @@ services:
       --NotebookApp.token=''
       --NotebookApp.password=''
 
-  # LIVE loop container: long-running `python -m files.main`
   paper:
     image: trade
     depends_on:
@@ -57,6 +65,16 @@ services:
       FEE_BPS: ${FEE_BPS:-8}
       SLIPPAGE_BPS: ${SLIPPAGE_BPS:-5}
       COOLDOWN_BARS: ${COOLDOWN_BARS:-1}
+
+      # TEST HOOKS (default OFF)
+      TEST_HOOKS_ENABLED: ${TEST_HOOKS_ENABLED:-0}
+      FORCE_ENTRY_SIGNAL_ONCE: ${FORCE_ENTRY_SIGNAL_ONCE:-0}
+      FORCE_COOLDOWN_BLOCK_ONCE: ${FORCE_COOLDOWN_BLOCK_ONCE:-0}
+      FORCE_COOLDOWN_BARS: ${FORCE_COOLDOWN_BARS:-0}
+      FORCE_FEATURES_INVALID_N: ${FORCE_FEATURES_INVALID_N:-0}
+      FORCE_CADENCE_FAIL_N: ${FORCE_CADENCE_FAIL_N:-0}
+      BYPASS_FEATURE_VALIDATION: ${BYPASS_FEATURE_VALIDATION:-0}
+
       TF_ENABLE_ONEDNN_OPTS: 0
       TF_CPP_MIN_LOG_LEVEL: 2
       TZ: America/Los_Angeles
@@ -85,7 +103,6 @@ services:
       PYTHONPATH: /work
       TZ: America/Los_Angeles
       FLAGS_DIR: "/home/kk7wus/trade_flags"
-      # Make reload reliable inside Docker mounts
       STREAMLIT_SERVER_RUN_ON_SAVE: "true"
       STREAMLIT_SERVER_FILE_WATCHER_TYPE: "poll"
     working_dir: /work
@@ -93,5 +110,4 @@ services:
       - /home/kk7wus/trade_flags:/home/kk7wus/trade_flags:rw
       - ./files:/work/files:ro
       - ./data:/work/data:ro
-      # HOT-RELOAD: bind-mount dashboard source over /app (where image runs /app/app.py)
       - ./dashboard:/app:rw

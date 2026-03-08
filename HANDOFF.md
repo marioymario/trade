@@ -1336,3 +1336,422 @@ submit-boundary broker blockers
 repeated already-processed skips can be normal during the current in-progress candle window
 
 do not call Mission 4 PASS until STOP/HALT/daily-limit are observed directly in decisions.csv
+
+----
+HANDOFF — 2026-03-07 — Mission 4 Enforcement + Overnight Runtime State
+
+Mission
+Finish Mission 4 — Enforcement at Submit Boundary.
+
+Goal:
+Ensure broker-facing entry safety controls are enforced at the submit boundary and recorded in decisions.csv with canonical reason codes.
+
+Required canonical submit-boundary codes:
+- STOP_BLOCK
+- HALT_BLOCK
+- ARM_BLOCK
+- DAILY_LIMIT_BLOCK
+
+Exits must remain allowed.
+
+================================================================
+WHY THIS MISSION MATTERS
+================================================================
+
+This is the key remaining safety-hardening gap between:
+- a system that can run unattended
+and
+- a system that is safe enough to seriously approach real-money readiness.
+
+The main principle is now clear:
+
+files/broker/guarded.py must be the authoritative submit-boundary blocker.
+
+main.py may still block for orchestration/runtime reasons like:
+- degraded mode
+- cooldown
+- size <= 0
+
+But broker-facing control-plane policy should not be duplicated there.
+
+================================================================
+FILES CHANGED IN THIS SESSION
+================================================================
+
+Trading-system files changed:
+- files/broker/guarded.py
+- files/main.py
+- files/data/features.py
+- files/data/storage.py
+
+Files inspected but not changed:
+- files/data/decisions.py
+- files/broker/paper.py
+- files/data/market.py
+
+Other repo state still present locally and should be reviewed separately before commit:
+- docker-compose.yml
+- files/data/market.py
+- ops/cron_heartbeat.sh
+- ops/deploy_oldbox.sh
+- ops/rsync_exclude.txt
+
+Do not blindly commit unrelated ops/deploy changes with the Mission 4 batch.
+
+================================================================
+WHAT CHANGED
+================================================================
+
+1) files/broker/guarded.py
+
+Submit-boundary broker policy was consolidated into GuardedBroker.
+
+Current responsibilities there:
+- STOP_BLOCK(...)
+- HALT_BLOCK(...)
+- ARM_BLOCK(...)
+- DAILY_LIMIT_BLOCK(...)
+- DRY_RUN_BLOCK for real-broker path
+- BAD_INPUTS
+- MAX_ORDER_USD_BLOCK(...)
+- MAX_POSITION_USD_BLOCK(...)
+
+Important fix:
+- old HALT_ENTRY_BLOCK naming was aligned to canonical HALT_BLOCK
+
+2) files/main.py
+
+Removed duplicate broker-facing control-plane blocking from main.py.
+
+main.py now keeps orchestration/runtime blocks only:
+- COOLDOWN_BLOCK(...)
+- DEGRADED_BLOCK(...)
+- SIZE_BLOCK(...)
+
+main.py still owns:
+- market fetch / loop orchestration
+- degraded-mode logic
+- trailing freeze logic
+- decision writing
+- exit handling
+
+Current intended split:
+- main.py decides whether it wants to enter
+- GuardedBroker decides whether entry may reach the inner broker
+
+3) files/data/features.py
+
+Hardened latest-row feature validation.
+
+Old behavior:
+- any NaN in latest feature row killed the loop
+
+New behavior:
+- execution-critical fields still fail hard
+- optional derived fields warn instead of halting
+
+This reduced brittleness, but stale test-fault env and prior degraded state still affected proof runs.
+
+4) files/data/storage.py
+
+Added observability for suspicious replayed adjacent OHLCV bars.
+
+Current behavior:
+- warns if adjacent rows have different timestamps but identical OHLCV payload
+- does not mutate/drop rows yet
+- observability-first only
+
+================================================================
+WHAT WAS PROVEN
+================================================================
+
+Proven in decisions.csv:
+- ARM_BLOCK(...)
+- DEGRADED_BLOCK(...)
+- COOLDOWN_BLOCK(...)
+- MAX_ORDER_USD_BLOCK(...)
+
+Observed forced-entry proof rows with:
+- entry_should_enter=True
+- entry_reason=TEST_FORCE_ENTRY_SIGNAL_ONCE
+
+This proves:
+- forced-entry hook works
+- fresh eligible bar path works
+- decision writing works
+- blocked entry reasons are landing in entry_blocked_reason
+- submit-boundary blocking flow is functioning for real entry attempts
+
+Overnight healthy-loop evidence:
+paper container repeatedly showed:
+- Fetched market data
+- Persisted bars
+- Decision recorded on fresh closed bars
+- SKIP: already-processed bar (restart-safe idempotency) during already-seen/in-progress windows
+
+That is expected and healthy behavior.
+
+================================================================
+WHAT IS NOT FULLY PROVEN YET
+================================================================
+
+Still not directly observed in decisions.csv during this mission:
+- STOP_BLOCK(...)
+- HALT_BLOCK(...)
+- DAILY_LIMIT_BLOCK(...)
+- exits still allowed under STOP/HALT
+
+This is the remaining proof gap.
+
+Important nuance:
+This is not because the submit-boundary architecture failed.
+
+It is because proof attempts were intercepted earlier by higher-precedence runtime/orchestration blockers during testing:
+- COOLDOWN_BLOCK(...)
+- then DEGRADED_BLOCK(...)
+
+So STOP/HALT were not reached on those specific proof attempts.
+
+================================================================
+MAIN BLOCKER TO FULL MISSION 4 PASS
+================================================================
+
+The remaining blocker is proof completion, not architecture.
+
+During deterministic proof attempts, fresh forced-entry rows were blocked by:
+- COOLDOWN_BLOCK(remaining=3)
+and later by:
+- DEGRADED_BLOCK(features_invalid_x4_in_last6)
+- DEGRADED_BLOCK(features_invalid_x5_in_last6)
+
+Therefore:
+STOP/HALT proof did not fail due to GuardedBroker.
+STOP/HALT proof did not land because runtime-state precedence intercepted entry first.
+
+================================================================
+IMPORTANT RUNTIME FINDINGS
+================================================================
+
+1) .env had stale test-fault settings
+
+A major source of confusion during proofing was dirty runtime env.
+Found earlier in .env:
+- FORCE_FEATURES_INVALID_N=2
+- duplicate TEST_HOOKS_ENABLED
+- duplicate FORCE_ENTRY_SIGNAL_ONCE
+
+This intentionally poisoned features until cleaned.
+
+The fix was to overwrite .env with a single boring source of truth.
+
+2) Repeated SKIP: already-processed bar was not a bug
+
+This was expected behavior when:
+- latest fetched bar was still the in-progress candle
+- main.py dropped the in-progress last bar
+- newest eligible closed bar was already present in decisions.csv
+
+So repeated skip behavior during a live 5m window can be normal and safe.
+
+3) Overnight run showed healthy stabilization
+
+By the overnight check:
+- no recurring features_invalid churn in the active runtime tail
+- no replay warning fired from storage.py
+- loop showed normal cadence and stable decision writing
+- system now behaves much more like an operationally boring service
+
+4) Submit-boundary MAX_ORDER_USD proof appeared naturally
+
+Overnight decisions.csv contained repeated rows like:
+- MAX_ORDER_USD_BLOCK(order_usd=50.00 cap=25.00)
+
+This is strong evidence that:
+- strategy wanted to enter
+- main.py called broker.open_position(...)
+- GuardedBroker blocked at submit boundary
+- the returned reason landed correctly in decisions.csv
+
+This is a very important proof of architecture correctness.
+
+================================================================
+CURRENT RUNTIME TRUTH
+================================================================
+
+At the end of this session / overnight run:
+- Mission 4 architecture is much cleaner than before
+- GuardedBroker now owns broker-facing submit-boundary policy
+- main.py is cleaner and no longer duplicates STOP/HALT/ARM/daily-limit entry policy
+- runtime env is cleaner and less polluted by old fault-injection state
+- overnight loop behavior looks healthy
+- submit-boundary reasons are definitely landing in decisions.csv
+- remaining work is mainly proof matrix completion, not structural redesign
+
+================================================================
+UPDATED MATURITY SNAPSHOT
+================================================================
+
+Trading system
+
+Self-running unattended system readiness:
+~93–94%
+
+Why:
+- loop runs continuously
+- docker/systemd/runtime behavior is stable
+- observability chain works
+- healthy overnight cadence observed
+- restart-safe idempotency works
+
+Safe-to-connect-real-money readiness:
+~69–72%
+
+Why it improved:
+- submit-boundary architecture is cleaner
+- ARM_BLOCK proved
+- MAX_ORDER_USD_BLOCK proved
+- overnight operation looked healthy
+- runtime env/test pollution issue was identified and corrected
+
+Why it is not higher:
+- STOP_BLOCK / HALT_BLOCK / DAILY_LIMIT_BLOCK still need explicit proof
+- exits-under-STOP/HALT still need explicit proof
+- there is still some proof debt around the control-plane matrix
+
+Mission 4 specifically
+
+Architecture completion:
+~92–94%
+
+Proof completion:
+~68–72%
+
+Why:
+- multiple real block reasons are proven in decisions.csv
+- but the exact canonical control-plane proof set is still incomplete
+
+Repo RAG Assistant
+
+Useful/trustworthy teammate readiness:
+~84–89%
+
+Strong:
+- refusal discipline
+- source cleanliness
+- eval stability
+- operator usefulness
+
+Still weaker:
+- multi-hop trace capability
+
+================================================================
+SUGGESTED PASS CONDITION FOR MISSION 4
+================================================================
+
+Mission 4 should be marked PASS only when all of the following are explicitly observed:
+
+1) ARM_BLOCK(...) observed in entry_blocked_reason
+2) STOP_BLOCK(...) observed in entry_blocked_reason
+3) HALT_BLOCK(...) observed in entry_blocked_reason
+4) DAILY_LIMIT_BLOCK(...) observed in entry_blocked_reason
+5) exits remain allowed under STOP/HALT
+6) no broker-facing STOP/HALT/ARM/daily-limit entry policy remains duplicated in main.py
+
+Current status:
+- item 1 is proven
+- item 6 is effectively proven by file inspection/change
+- items 2–5 still need explicit proof
+
+================================================================
+BEST NEXT MISSION
+================================================================
+
+Complete the remaining proof matrix for Mission 4.
+
+Recommended order:
+
+1) STOP_BLOCK proof
+- ensure degraded mode is not active
+- keep TEST_HOOKS_ENABLED=1
+- set FORCE_ENTRY_SIGNAL_ONCE=1
+- create STOP file
+- ensure HALT absent
+- recreate paper
+- capture next fresh eligible decision row
+
+Expected proof row:
+- entry_should_enter=True
+- entry_reason=TEST_FORCE_ENTRY_SIGNAL_ONCE
+- entry_blocked_reason=STOP_BLOCK(...)
+
+2) HALT_BLOCK proof
+- remove STOP
+- create HALT
+- keep FORCE_ENTRY_SIGNAL_ONCE=1
+- recreate paper
+- capture next fresh eligible decision row
+
+Expected:
+- entry_blocked_reason=HALT_BLOCK(...)
+
+3) DAILY_LIMIT_BLOCK proof
+- set deterministic low daily limit
+- trigger one qualifying trade/day state
+- attempt another entry
+- capture daily-limit block in decisions.csv
+
+Expected:
+- entry_blocked_reason=DAILY_LIMIT_BLOCK(...)
+
+4) Exit-under-STOP/HALT proof
+- force or wait for open position
+- activate STOP or HALT
+- confirm exit path still functions
+- confirm no new entry allowed
+
+================================================================
+USEFUL COMMANDS
+================================================================
+
+Check runtime env inside paper:
+cd ~/Projects/trade && docker compose exec -T paper sh -lc 'env | egrep "^(TEST_HOOKS_ENABLED|FORCE_FEATURES_INVALID_N|FORCE_CADENCE_FAIL_N|FORCE_ENTRY_SIGNAL_ONCE|FORCE_COOLDOWN_BLOCK_ONCE|FORCE_COOLDOWN_BARS|ARM_FILE|KILL_SWITCH_FILE|HALT_ORDERS_FILE|DATA_TAG|TIMEFRAME|BROKER)="'
+
+Tail live decisions:
+cd ~/Projects/trade && tail -f data/processed/decisions/paper_oldbox_live/BTC_USD/5m/decisions.csv
+
+Search proof rows:
+cd ~/Projects/trade && grep -n 'TEST_FORCE_ENTRY_SIGNAL_ONCE\|STOP_BLOCK\|HALT_BLOCK\|ARM_BLOCK\|DAILY_LIMIT_BLOCK\|DEGRADED_BLOCK\|COOLDOWN_BLOCK\|MAX_ORDER_USD_BLOCK' data/processed/decisions/paper_oldbox_live/BTC_USD/5m/decisions.csv | tail -n 30
+
+Watch proof logs:
+cd ~/Projects/trade && docker compose logs -f paper | egrep 'TEST: forcing entry signal once|Blocked entry at broker guard|Decision recorded|SKIP: already-processed|Latest features invalid'
+
+================================================================
+OPERATOR NOTES
+================================================================
+
+- Keep runtime .env boring and deduplicated
+- Do not leave fault-injection knobs on after proofs
+- Distinguish:
+  - orchestration/runtime blockers
+  - submit-boundary broker blockers
+- repeated already-processed skips can be normal during the current in-progress candle window
+- do not mark Mission 4 PASS until STOP/HALT/daily-limit/exits-under-halt are explicitly observed
+
+================================================================
+HONEST SUMMARY
+================================================================
+
+This session made real progress.
+
+The architecture is better.
+The submit-boundary model is cleaner.
+The overnight loop looked healthy.
+The proof plumbing works.
+Real submit-boundary block reasons are landing in decisions.csv.
+
+But Mission 4 is not fully closed yet.
+
+Best current label:
+
+Mission 4 — strong progress, healthy overnight runtime, partial proof complete, explicit STOP/HALT/DAILY_LIMIT and exit-under-halt proofs still pendin:> [!WARNING]
+> g

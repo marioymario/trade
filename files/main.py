@@ -11,6 +11,7 @@ import pandas as pd
 from files.broker.paper import PaperBroker
 from files.broker.guarded import GuardedBroker
 from files.config import load_trading_config
+from files.core.types import EntrySignal
 from files.data.decisions import append_decision_csv, decisions_csv_path
 from files.data.features import compute_features, validate_latest_features
 from files.data.market import fetch_market_data, MarketFetchError
@@ -245,6 +246,7 @@ def main() -> None:
 
     test_hooks_enabled = _parse_bool_env("TEST_HOOKS_ENABLED", False)
     force_entry_signal_once = test_hooks_enabled and _parse_bool_env("FORCE_ENTRY_SIGNAL_ONCE", False)
+    force_exit_signal_once = test_hooks_enabled and _parse_bool_env("FORCE_EXIT_SIGNAL_ONCE", False)
     force_cooldown_block_once = test_hooks_enabled and _parse_bool_env("FORCE_COOLDOWN_BLOCK_ONCE", False)
     force_cooldown_bars = int(_parse_float_env("FORCE_COOLDOWN_BARS", 0.0)) if test_hooks_enabled else 0
 
@@ -271,17 +273,18 @@ def main() -> None:
             "ARM_FILE": arm_file,
             "TEST_HOOKS_ENABLED": bool(test_hooks_enabled),
             "FORCE_ENTRY_SIGNAL_ONCE": bool(force_entry_signal_once),
+            "FORCE_EXIT_SIGNAL_ONCE": bool(force_exit_signal_once),
             "FORCE_COOLDOWN_BLOCK_ONCE": bool(force_cooldown_block_once),
             "FORCE_COOLDOWN_BARS": int(force_cooldown_bars),
         },
     )
 
-    require_armed_for_entries = False
+    require_armed_for_entries = True
+
     if broker_kind == "alpaca":
         from files.broker.alpaca import AlpacaBroker
 
         inner = AlpacaBroker()
-        require_armed_for_entries = True
     else:
         inner = PaperBroker(
             dry_run=cfg.dry_run,
@@ -317,6 +320,7 @@ def main() -> None:
     degraded_since_ts_ms: int | None = None
 
     test_force_entry_used = False
+    test_force_exit_used = False
     test_force_cooldown_used = False
 
     def _write_decision_once_per_bar(decision_row: dict) -> None:
@@ -623,11 +627,18 @@ def main() -> None:
                     market_state=market_state,
                     expected_step_s=int(expected_step_s),
                 )
-                decision_row["exit_should_exit"] = bool(exit_sig.should_exit)
-                decision_row["exit_reason"] = exit_sig.reason or ""
 
-                if exit_sig.should_exit:
-                    exit_reason = exit_sig.reason or "exit"
+                if write_eligible_bar and force_exit_signal_once and (not test_force_exit_used):
+                    decision_row["exit_should_exit"] = True
+                    decision_row["exit_reason"] = "TEST_FORCE_EXIT_SIGNAL_ONCE"
+                    test_force_exit_used = True
+                    logger.warning("TEST: forcing exit signal once", extra={"reason": "TEST_FORCE_EXIT_SIGNAL_ONCE"})
+                else:
+                    decision_row["exit_should_exit"] = bool(exit_sig.should_exit)
+                    decision_row["exit_reason"] = exit_sig.reason or ""
+
+                if decision_row["exit_should_exit"]:
+                    exit_reason = decision_row["exit_reason"] or "exit"
                     exit_price = (
                         float(position.stop_price)
                         if (exit_reason == "stop_hit" and position.stop_price is not None)
@@ -680,18 +691,21 @@ def main() -> None:
             entry_sig = evaluate_entry(features=feats, market_state=market_state)
 
             if write_eligible_bar and force_entry_signal_once and (not test_force_entry_used):
-                decision_row["entry_should_enter"] = True
-                decision_row["entry_side"] = "LONG"
-                decision_row["entry_confidence"] = 0.99
-                decision_row["entry_reason"] = "TEST_FORCE_ENTRY_SIGNAL_ONCE"
+                effective_entry_sig = EntrySignal(
+                    should_enter=True,
+                    side="LONG",
+                    confidence=0.99,
+                    reason="TEST_FORCE_ENTRY_SIGNAL_ONCE",
+                )
                 test_force_entry_used = True
                 logger.warning("TEST: forcing entry signal once", extra={"side": "LONG", "confidence": 0.99})
             else:
-                decision_row["entry_should_enter"] = bool(entry_sig.should_enter)
-                decision_row["entry_side"] = entry_sig.side
-                decision_row["entry_confidence"] = float(entry_sig.confidence)
-                decision_row["entry_reason"] = entry_sig.reason
+                effective_entry_sig = entry_sig
 
+            decision_row["entry_should_enter"] = bool(effective_entry_sig.should_enter)
+            decision_row["entry_side"] = effective_entry_sig.side
+            decision_row["entry_confidence"] = float(effective_entry_sig.confidence)
+            decision_row["entry_reason"] = effective_entry_sig.reason
             decision_row["entry_blocked_reason"] = ""
 
             if remaining > 0:
@@ -702,12 +716,7 @@ def main() -> None:
                 continue
 
             if decision_row["entry_should_enter"]:
-                size = min(size_position(signal=entry_sig, market_state=market_state), cfg.max_order_size)
-
-                max_position_usd = _parse_float_env("MAX_POSITION_USD", 0.0)
-                if max_position_usd > 0.0 and latest_close > 0.0:
-                    max_qty = float(max_position_usd) / float(latest_close)
-                    size = min(float(size), float(max_qty))
+                size = min(size_position(signal=effective_entry_sig, market_state=market_state), cfg.max_order_size)
 
                 if float(size) <= 0.0:
                     decision_row["entry_blocked_reason"] = "SIZE_BLOCK(size<=0)"
@@ -721,16 +730,16 @@ def main() -> None:
                 else:
                     blocked_reason = broker.open_position(
                         symbol=ccxt_symbol,
-                        side=entry_sig.side,
+                        side=effective_entry_sig.side,
                         size=float(size),
                         entry_price=float(latest_close),
                         entry_ts_ms=int(now_ts_ms + step_ms),
                         stop_price=compute_initial_stop(
-                            side=entry_sig.side,
+                            side=effective_entry_sig.side,
                             entry_price=latest_close,
                             atr=latest_atr,
                         ),
-                        trailing_anchor_price=(latest_high if entry_sig.side == "LONG" else latest_low),
+                        trailing_anchor_price=(latest_high if effective_entry_sig.side == "LONG" else latest_low),
                     )
                     if blocked_reason:
                         decision_row["entry_blocked_reason"] = str(blocked_reason)
