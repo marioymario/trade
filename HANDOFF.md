@@ -1754,4 +1754,990 @@ But Mission 4 is not fully closed yet.
 Best current label:
 
 Mission 4 — strong progress, healthy overnight runtime, partial proof complete, explicit STOP/HALT/DAILY_LIMIT and exit-under-halt proofs still pendin:> [!WARNING]
-> g
+
+=================================================================
+
+HANDOFF — 2026-03-08 — Mission 4 PASS + Mission 5A PASS + Next Mission
+
+================================================================
+MISSION STATUS
+================================================================
+
+Mission 4
+PASS
+
+Mission 5A
+PASS
+
+Current overall state:
+- submit-boundary entry matrix proven
+- STOP semantics proven during a live position
+- realistic paper runtime proven with natural entries, holds, trailing, exits, and trade recording
+- next work should move from semantics proofing into runtime quality / safety re-balancing / performance truth
+
+================================================================
+EXECUTIVE SUMMARY
+================================================================
+
+This cycle closed Mission 4 for real.
+
+We proved from old-box runtime evidence that:
+- STOP blocks new entries
+- STOP freezes trailing during a live open position
+- the live open position can still exit and record a trade while STOP is present
+
+We also proved Mission 5A:
+- the system can run in a realistic paper configuration
+- natural positions can open without proof hooks
+- positions can hold across bars
+- trailing ratchets in normal runtime
+- exits are recorded cleanly
+- old-box runtime truth matches intended configuration
+
+This is a major step up in system honesty.
+
+We are no longer mainly asking:
+- “are the guardrails wired?”
+We are now mainly asking:
+- “how well does the system behave in realistic paper runtime?”
+- “what should be tuned next without breaking the proven semantics?”
+
+================================================================
+CURRENT TRUTH
+================================================================
+
+Repo / runtime discipline
+
+Re-confirmed:
+- local repo truth is not enough
+- old-box runtime truth is what counts
+
+For any serious claim, verify all four:
+1) file truth
+2) deploy truth
+3) container env truth
+4) runtime-state truth
+
+Current architecture / ownership
+
+- files/main.py owns orchestration/runtime behavior
+- files/broker/guarded.py owns submit-boundary entry blocking
+- PaperBroker handles paper position lifecycle
+- operator flag files affect runtime immediately through mounted flags dir
+
+Current proven submit-boundary blockers:
+- ARM_BLOCK(...)
+- STOP_BLOCK(...)
+- HALT_BLOCK(...)
+- DAILY_LIMIT_BLOCK(...)
+- MAX_ORDER_USD_BLOCK(...)
+- MAX_POSITION_USD_BLOCK(...)
+
+Current runtime behavior:
+- STOP/HALT block entries at submit boundary
+- exits still go through realize_and_close(...)
+- trailing freezes under STOP/HALT in main.py
+- proof hooks exist but are now OFF in Mission 5A runtime
+
+================================================================
+WHAT WE PROVED THIS CYCLE
+================================================================
+
+A) Mission 5A realistic paper runtime proof
+
+Runtime config was moved out of proof-junk mode and into realistic paper mode:
+- proof hooks OFF
+- MAX_ORDER_USD raised
+- MAX_POSITION_USD raised
+- daily loss guard kept on
+- ARM active
+- STOP/HALT absent during normal observation
+- current runtime env confirmed inside running paper container
+
+Observed from real runtime:
+- natural entries occurred
+- positions held across multiple 5m bars
+- trailing stop updated with trail_reason=ratchet
+- exits were recorded as trades
+- repeated real paper activity occurred without proof hooks
+- no degraded/cadence/features noise interfered
+
+Mission 5A result:
+PASS
+
+B) Mission 4 final remainder proof
+
+Goal:
+prove that under STOP during a live position:
+- trailing freezes
+- new entries are blocked
+- open position can still close and record a trade
+
+A dedicated proof runner was created:
+- ops/mission4_stop_exit_proof.sh
+
+What it did:
+1) wait for a live open position
+2) create STOP automatically at the correct time
+3) hold STOP in place during the live position
+4) capture decision rows, logs, and trades
+5) remove STOP after proof capture
+
+Observed runtime evidence:
+
+1. Entry blocked under STOP
+Observed in decisions.csv:
+- entry_should_enter=True
+- entry_reason=trend_down_and_confident
+- entry_blocked_reason=STOP_BLOCK(kill_switch=/home/kk7wus/trade_flags/STOP)
+
+Examples captured:
+- 2026-03-08T16:40:00+00:00
+- 2026-03-08T16:45:00+00:00
+- 2026-03-08T16:50:00+00:00
+- 2026-03-08T16:55:00+00:00
+- 2026-03-08T17:00:00+00:00
+- 2026-03-08T18:45:00+00:00
+
+2. Trailing froze under STOP during a live open position
+Observed in decisions.csv for live SHORT position:
+- trail_reason=halted_freeze_trailing(STOP_BLOCK(kill_switch=/home/kk7wus/trade_flags/STOP))
+
+Also observed:
+- position_stop_price remained fixed at 67041.87056700776 across multiple bars
+- position remained open while STOP was present
+- loop continued writing decision rows
+
+Captured examples:
+- 2026-03-08T18:55:00+00:00
+- 2026-03-08T19:00:00+00:00
+- 2026-03-08T19:05:00+00:00
+- 2026-03-08T19:10:00+00:00
+- 2026-03-08T19:15:00+00:00
+
+3. Exit still completed under STOP
+Observed:
+- live SHORT position remained open under STOP
+- exit_should_exit=True with exit_reason=stop_hit while STOP still present
+- trade was recorded
+- trades.csv captured:
+  entry_ts_ms=1772996100000
+  exit_ts_ms=1772997300000
+  side=SHORT
+  qty=0.01
+  entry_price=66830.24
+  exit_price=67041.87056700776
+  reason=stop_hit
+
+Log evidence also showed:
+- Trade recorded
+
+Mission 4 final remainder result:
+PASS
+
+================================================================
+STRONGEST EVIDENCE TO REMEMBER
+================================================================
+
+From decisions.csv:
+- STOP_BLOCK(...) rows exist for attempted fresh entries
+- halted_freeze_trailing(STOP_BLOCK(...)) rows exist during live position
+- exit_should_exit=True and exit_reason=stop_hit occurred while STOP remained present
+
+From trades.csv:
+- the STOP-window live SHORT did close and record correctly
+
+From proof runner lifecycle:
+- STOP was created automatically only after live position appeared
+- STOP was removed automatically after proof capture
+- proof packet saved at:
+  /home/kk7wus/Projects/trade/ops/proofs/mission4_stop_exit_20260308T185914Z.log
+
+================================================================
+IMPORTANT FILES NOW IN PLAY
+================================================================
+
+Core runtime files
+- files/main.py
+- files/broker/guarded.py
+- files/config.py
+- ops/daily_limits_check.py
+
+Proof tooling
+- ops/mission4_stop_exit_proof.sh
+
+Compose/runtime
+- docker-compose.yml
+- .env
+
+Evidence locations
+- data/processed/decisions/paper_oldbox_live/BTC_USD/5m/decisions.csv
+- data/processed/trades/paper_oldbox_live/BTC_USD/5m/trades.csv
+- ops/proofs/mission4_stop_exit_20260308T185914Z.log
+
+================================================================
+CURRENT MISSION 5A CONFIG TRUTH
+================================================================
+
+Mission 5A runtime mode was confirmed inside the running paper container:
+
+- DATA_TAG=paper_oldbox_live
+- SYMBOL=BTC/USD
+- TIMEFRAME=5m
+- BROKER=paper
+- DRY_RUN=1
+- COOLDOWN_BARS=1
+- MAX_ORDER_SIZE=0.01
+- MAX_ORDER_USD=1000
+- MAX_POSITION_USD=1000
+- MAX_TRADES_PER_DAY=0
+- MAX_DAILY_LOSS_USD=25
+- TEST_HOOKS_ENABLED=0
+- FORCE_ENTRY_SIGNAL_ONCE=0
+- FORCE_EXIT_SIGNAL_ONCE=0
+- FORCE_COOLDOWN_BLOCK_ONCE=0
+- FORCE_COOLDOWN_BARS=0
+- FORCE_FEATURES_INVALID_N=0
+- FORCE_CADENCE_FAIL_N=0
+- BYPASS_FEATURE_VALIDATION=0
+- ARM_FILE=/home/kk7wus/trade_flags/ARM
+- KILL_SWITCH_FILE=/home/kk7wus/trade_flags/STOP
+- HALT_ORDERS_FILE=/home/kk7wus/trade_flags/HALT
+- TZ_LOCAL=America/Los_Angeles
+
+Flags truth during normal runtime:
+- ARM exists
+- STOP absent except when intentionally used for proof
+- HALT absent except when intentionally used for proof
+
+================================================================
+MAIN PITFALLS WE HIT
+================================================================
+
+1) Local truth != old-box truth
+Still the biggest source of false confidence.
+
+2) Proof timing matters
+For STOP live-position proof, order matters:
+- live position exists
+- apply STOP
+- observe freeze + exit
+Not:
+- apply STOP while flat
+- hope later evidence still means the same thing
+
+3) Manual proof timing is noisy
+A dedicated proof runner was much better than human polling.
+
+4) Historical decision rows can confuse current truth
+Old proof rows stayed in decisions.csv, so always anchor to timestamps and current runtime state.
+
+5) Safety semantics proof and strategy quality proof are different
+The system can be semantically correct and still perform poorly.
+Do not confuse those categories.
+
+================================================================
+WORKING CONTRACT — HOW WE WORK
+================================================================
+
+Purpose
+
+We work in a way that is:
+- safe
+- grounded
+- reproducible
+- proof-driven
+- low-noise
+
+Core rules
+
+1) One mission at a time
+Stay on one mission until:
+- proven
+- cleanly blocked
+- or intentionally parked
+
+2) File-first discipline
+Before proposing changes, identify the exact file(s).
+
+3) Full-file replacements preferred
+Avoid speculative patch fragments when possible.
+
+4) Old-box runtime truth wins
+Never trust local assumptions over running truth.
+
+5) Proof over theory
+A change is not done because it sounds right.
+It is done when runtime evidence proves it.
+
+6) Honest labels only
+Use:
+- PASS
+- partial proof
+- blocked
+- failed
+- deferred remainder
+
+7) Clean proof state
+When a proof is done, clean:
+- STOP / HALT / ARM test state
+- .env proof knobs
+- seeded test data if used
+
+8) Prefer proof tools over manual babysitting
+If timing sensitivity is high, create a dedicated proof runner instead of relying on human polling.
+
+================================================================
+USEFUL COMMANDS
+================================================================
+
+Runtime env truth
+cd ~/Projects/trade && docker compose exec -T paper sh -lc 'env | egrep "^(DATA_TAG|SYMBOL|TIMEFRAME|DRY_RUN|BROKER|COOLDOWN_BARS|MAX_ORDER_SIZE|MAX_ORDER_USD|MAX_POSITION_USD|MAX_TRADES_PER_DAY|MAX_DAILY_LOSS_USD|TEST_HOOKS_ENABLED|FORCE_ENTRY_SIGNAL_ONCE|FORCE_EXIT_SIGNAL_ONCE|FORCE_COOLDOWN_BLOCK_ONCE|FORCE_COOLDOWN_BARS|FORCE_FEATURES_INVALID_N|FORCE_CADENCE_FAIL_N|BYPASS_FEATURE_VALIDATION|ARM_FILE|KILL_SWITCH_FILE|HALT_ORDERS_FILE|TZ_LOCAL)="'
+
+Latest decisions
+cd ~/Projects/trade && tail -n 40 data/processed/decisions/paper_oldbox_live/BTC_USD/5m/decisions.csv
+
+Latest trades
+cd ~/Projects/trade && tail -n 20 data/processed/trades/paper_oldbox_live/BTC_USD/5m/trades.csv
+
+Recent paper events
+cd ~/Projects/trade && docker compose logs --since=12h paper | egrep 'Opened paper position|Updated stop|Trade recorded|Closed paper position|Blocked entry at broker guard|DEGRADED|Cadence check failed|Latest features invalid'
+
+Proof log tail
+cd ~/Projects/trade && tail -n 120 ops/proofs/mission4_stop_exit_20260308T185914Z.log
+
+Run Mission 4 STOP/exit proof tool again
+cd ~/Projects/trade && ./ops/mission4_stop_exit_proof.sh
+
+Deploy to old-box safely
+cd ~/Projects/trade && OLD_BOX_HOST=kk7wus@old-box OLD_BOX_DIR=/home/kk7wus/Projects/trade ./ops/deploy_oldbox.sh
+
+Important deploy note
+Do not use:
+- OLD_BOX_DIR=~/Projects/trade
+Use:
+- OLD_BOX_DIR=/home/kk7wus/Projects/trade
+
+================================================================
+RECOMMENDED STATUS LABEL NOW
+================================================================
+
+Mission 4
+PASS
+
+Expanded label:
+- submit-boundary entry matrix proven
+- STOP during live position freezes trailing
+- STOP blocks fresh entries
+- open position can still exit and record under STOP
+- proven from old-box runtime evidence
+
+Mission 5A
+PASS
+
+Expanded label:
+- realistic paper runtime observed
+- natural open / hold / trail / exit cycle(s) observed
+- proof hooks off
+- rails still active
+
+================================================================
+NEXT MISSION
+================================================================
+
+Mission 5B — Runtime Quality, Safety Re-Balancing, and Honest Paper Performance
+
+Goal
+
+Move from “semantics are proven” into:
+- how well the system behaves in realistic paper runtime
+- whether current sizing / stops / trailing / filters are sensible
+- how to rebalance safety caps now that proof mode is over
+- what the real next bottleneck is: strategy quality, runtime safety, or observability
+
+Why this is the right next mission
+
+- Mission 4 is now closed
+- Mission 5A proved realistic runtime operation
+- the next unanswered questions are quality questions, not wiring questions
+- current paper trades show repeated stop_hit exits and cumulative drawdown
+- now is the right time to analyze behavior honestly before changing architecture again
+
+Mission 5B suggested targets
+
+1) Quantify paper runtime performance
+Look at:
+- win/loss count
+- average pnl
+- cumulative pnl
+- average hold duration
+- stop_hit frequency
+- time_stop frequency
+- LONG vs SHORT behavior
+- behavior by market_reason / trend / volatility
+
+2) Assess whether current safety caps are still appropriate
+Now that 0.01 positions are real:
+- is MAX_DAILY_LOSS_USD=25 right?
+- should MAX_TRADES_PER_DAY remain 0 or be restored to a real cap?
+- should MAX_POSITION_USD stay at 1000 or be reduced to a more boring paper cap?
+
+3) Inspect strategy/runtime quality
+Questions:
+- are entries too frequent or too weak?
+- is trailing too tight?
+- are many exits just noise-stop losses?
+- is cooldown too permissive?
+- are filter conditions admitting poor setups?
+
+4) Improve observability if needed
+Possible next improvements:
+- better dashboard visibility for current position lifecycle
+- clearer logging around open/close/trail/blocked events
+- small summary scripts for paper performance truth
+
+5) Only after the above, decide whether repo changes are needed
+Do not jump into code surgery until paper-runtime truth says what actually hurts.
+
+Suggested first moves for Mission 5B
+
+1. Build a simple runtime-performance summary from trades.csv
+2. Quantify what the current paper configuration actually did overnight
+3. Decide whether next step is:
+   - performance analysis script
+   - dashboard/operator summary improvement
+   - cap rebalance
+   - strategy tuning
+
+================================================================
+HONEST SUMMARY
+================================================================
+
+This was a high-value cycle.
+
+We did not just “test things.”
+We turned ambiguous behavior into proven runtime truth.
+
+What we now know for real:
+- submit-boundary guard semantics are real
+- STOP behavior is proven during a live open position
+- realistic paper runtime works without proof hooks
+- the system can naturally open, hold, trail, and exit
+- the next dragon is no longer semantics; it is runtime quality and performance truth
+
+Best current summary:
+
+Mission 4 is closed.
+Mission 5A is passed.
+Next mission should be Mission 5B:
+runtime quality, safety re-balancing, and honest paper-performance analysis.
+
+
+===
+SIDE HANDOFF — STRATEGY LAB EXPERIMENT — 2026-03-09
+
+PURPOSE
+
+This sub-handoff tracks the notebook-based strategy experiment work.
+It is not the canonical runtime/system handoff.
+It is the research handoff for understanding strategy behavior before repo changes.
+
+CURRENT NOTEBOOK
+
+Notebook file:
+data/notebooks/strategy_lab_experiment_01.ipynb
+
+Notebook state verified:
+- notebook exists
+- notebook runs
+- imports work
+- features compute correctly
+- current workflow is usable
+
+Important workflow note:
+- notebook output copy/paste had been a problem
+- user later found a way to copy/paste
+- export-to-text helper also exists in notebook and still remains useful
+
+CURRENT NOTEBOOK STRUCTURE
+
+Verified sections:
+- strategy notes markdown
+- first notebook goals markdown
+- 0 imports
+- 1 exports
+- 2 existence check
+- 3 list raw partitions
+- 4 raw coverage summary
+- 5 load raw bars
+- 6 raw bars summary
+- 7 schema and nulls
+- 8 load decisions
+- 9 decisions summary
+- 10 load trades
+- 11 trades summary
+- 12 last trades
+- 13 compute features from raw bars
+- 14 features summary
+- 15 feature distributions
+- 16 classify market state
+- 17 market state counts
+- 18 merge trades with nearest feature/state at entry time
+- 19 inspect losing trades in context
+- 20 regime table
+- 21 MFE/MAE table
+- 22 MFE/MAE summary by side and outcome
+- 23 SHORT loss filter audit
+- 24 SHORT filter variant audit
+- 25 ALL vs LONG_ONLY vs LONG+filtered_SHORT comparison
+
+DATA STATUS
+
+Raw bar data:
+- tag: paper_oldbox_live
+- symbol: BTC_USD
+- timeframe: 5m
+- raw partitions present for 17 days
+- date span includes:
+  2026-02-09 through 2026-03-09
+- raw feature rows observed:
+  about 3608
+
+Processed runtime data:
+- decisions.csv present
+- trades.csv present
+
+This is enough for:
+- exploratory analysis
+- side/regime analysis
+- first controlled notebook experiments
+
+This is not yet enough for:
+- high-confidence broad optimization
+- trusting large parameter sweeps
+- claiming robustness
+
+KEY VERIFIED FINDINGS
+
+1) Overall strategy is losing
+From notebook trades summary:
+- trades: 41
+- wins: 9
+- losses: 32
+- total_pnl_usd: -63.26
+- avg_pnl_usd: -1.54
+
+2) SHORT is much worse than LONG
+Side summary:
+- SHORT
+  trades: 19
+  wins: 2
+  losses: 17
+  pnl_usd: -41.57
+  avg_pnl_usd: -2.19
+  win_rate: 10.53%
+
+- LONG
+  trades: 22
+  wins: 7
+  losses: 15
+  pnl_usd: -21.70
+  avg_pnl_usd: -0.99
+  win_rate: 31.82%
+
+Conclusion:
+- both sides lose
+- SHORT is the bigger problem by far
+
+3) Worst regime is SHORT in down regimes, especially high volatility
+Side by regime findings:
+- SHORT + down + normal is the biggest total damage bucket
+- SHORT + down + high is the worst average-loss bucket
+
+Conclusion:
+- SHORT is not just weak in general
+- it is especially damaging in the exact conditions where it was expected to help
+
+4) MFE / MAE analysis says SHORT is mainly an entry problem
+MFE/MAE summary:
+- SHORT losses:
+  avg_mfe_atr about 0.75
+  med_mfe_atr about 0.51
+  avg_mae_atr about 1.63
+  med_mae_atr about 1.54
+
+Interpretation:
+- losing SHORT trades do not move enough in the favorable direction
+- they move against the position too quickly and too strongly
+- this argues against widening SHORT stops first
+- this supports the idea that SHORT entries are poor or late
+
+5) SHORT loss audit found two failure modes
+SHORT loss clusters:
+A) oversold late-entry shorts
+- RSI < 30
+- negative ema_slow_slope
+- likely shorting into exhausted downside
+
+B) suspicious counter-trend shorts
+- RSI >= 50
+- positive ema_slow_slope
+- likely shorting while slow trend context is still rising
+
+Conclusion:
+- SHORT failure is not a single issue
+- there are at least two bad entry patterns
+
+6) Simple SHORT filters helped but did not save SHORT
+Filter tests:
+- ema_slow_slope < 0 helped
+- RSI > 35 helped a bit
+- combined filter helped the most among tested variants
+- but all filtered SHORT variants remained negative
+
+Conclusion:
+- filtering removes garbage
+- but the remaining SHORT trades still do not show enough edge
+
+7) Final comparison confirmed LONG_ONLY is cleaner than LONG + filtered SHORT
+Portfolio comparison:
+- ALL: -63.26
+- LONG_ONLY: -21.70
+- LONG + filtered SHORT: -34.35
+
+Conclusion:
+- filtered SHORT is less bad than raw SHORT
+- filtered SHORT still makes portfolio worse than LONG_ONLY
+- LONG_ONLY is the current clean baseline
+
+MAIN RESEARCH CONCLUSION
+
+SHORT should be quarantined.
+
+Not because we dislike SHORT in theory,
+but because current notebook evidence says:
+
+- raw SHORT is bad
+- filtered SHORT is still bad
+- SHORT does not currently earn its place
+- LONG_ONLY is the better baseline for the next phase
+
+RECOMMENDED REPO DIRECTION
+
+Do not widen SHORT stops first.
+
+Preferred next repo change:
+- disable SHORT explicitly
+- keep LONG enabled
+- do it in a configurable and observable way
+- avoid silent hidden behavior if possible
+- preserve honest blocked/disabled reasoning in decisions or logs if feasible
+
+BEST NEXT RESEARCH DIRECTION AFTER QUARANTINE
+
+Move into LONG calibration.
+
+Priority questions:
+1) Why do LONG winners reach large MFE but total LONG performance is still negative?
+2) Is trailing giving back too much?
+3) Is confidence threshold too low even for LONG?
+4) Do LONG losses cluster in specific volatility or volume contexts?
+
+WORKING PRINCIPLES RECONFIRMED
+
+- do not change repo logic before notebook evidence is strong enough
+- isolate one failure mode at a time
+- prefer explicit conclusions over vague optimism
+- quarantine failing subsystems rather than endlessly tweaking them
+- keep the strategy lab notebook as the current research notebook
+- do not split into a new notebook yet unless this one becomes crowded
+
+NEXT INTENDED STEP
+
+After repo change to quarantine SHORT:
+- run paper as LONG_ONLY baseline
+- measure honestly
+- then begin LONG-side calibration work
+===
+GENERAL HANDOFF — 2026-03-09 — MISSION 5B STRATEGY LAB UPDATE
+
+CURRENT BIG PICTURE
+
+System work has shifted from semantics proofing into strategy quality.
+
+Already proven from earlier mission work:
+- Mission 4 PASS
+- Mission 5A PASS
+- submit-boundary entry matrix proven
+- STOP semantics proven during live position
+- realistic paper runtime proven
+- runtime observability and proof discipline improved
+
+What changed in this cycle:
+- we started serious notebook-based strategy analysis
+- we stopped guessing from tails
+- we moved into data-backed regime / side / MFE-MAE analysis
+
+CURRENT STATUS
+
+Runtime / system side:
+- infrastructure and semantics remain in a good place
+- paper runtime is still operating
+- notebook storage under data/notebooks is working
+- strategy lab notebook is now in active use
+
+Research side:
+- current notebook:
+  data/notebooks/strategy_lab_experiment_01.ipynb
+- notebook state verified and usable
+- enough raw and processed data exists for exploratory work
+
+MOST IMPORTANT NEW FINDING
+
+SHORT is currently a liability.
+
+This is not just a feeling.
+Notebook evidence now supports it from multiple angles:
+
+- side summary
+- regime summary
+- MFE/MAE
+- SHORT loss filter audit
+- filtered SHORT vs LONG_ONLY comparison
+
+KEY STRATEGY FINDINGS
+
+1) Strategy is losing overall
+Current observed notebook summary:
+- trades: 41
+- wins: 9
+- losses: 32
+- total pnl: -63.26 USD
+- avg pnl per trade: -1.54 USD
+
+2) SHORT is much worse than LONG
+- SHORT:
+  19 trades
+  2 wins
+  17 losses
+  -41.57 USD
+  avg -2.19 USD/trade
+- LONG:
+  22 trades
+  7 wins
+  15 losses
+  -21.70 USD
+  avg -0.99 USD/trade
+
+3) Worst strategy zone is SHORT in down regimes
+Especially:
+- SHORT + down + normal
+- SHORT + down + high
+
+4) MFE/MAE says SHORT is mainly an entry problem
+SHORT losers:
+- do not go far enough in favorable direction
+- move against the trade too quickly
+- widening stops would likely subsidize bad entries
+
+5) Two distinct SHORT failure modes exist
+A) late oversold shorts
+B) suspicious counter-trend shorts
+
+6) Filtering helped but did not rescue SHORT
+Trend-confirmed / RSI-filtered SHORT is still negative
+
+7) LONG_ONLY beats LONG + filtered SHORT
+This is the final operationally important comparison.
+Filtered SHORT still drags the portfolio below LONG_ONLY.
+
+CURRENT BEST CONCLUSION
+
+The cleanest next baseline is LONG_ONLY.
+
+SHORT should be quarantined.
+
+This is not a final philosophical claim about all SHORT logic forever.
+It is the correct operational claim for the current system and current evidence.
+
+RECOMMENDED NEXT REPO CHANGE
+
+Make a minimal repo change to disable SHORT.
+
+Preferred style:
+- configurable
+- explicit
+- observable
+- not a hidden silent hack if avoidable
+
+Rationale:
+- notebook evidence is now strong enough
+- LONG_ONLY is the better baseline
+- this reduces strategy complexity and focuses the next phase
+
+WHAT NOT TO DO NEXT
+
+- do not broaden optimization yet
+- do not widen SHORT stops first
+- do not try to rescue SHORT in production logic immediately
+- do not start a new notebook unless needed
+- do not bury this conclusion under future side quests
+
+NEXT PHASE AFTER SHORT QUARANTINE
+
+Mission direction:
+LONG calibration
+
+Key questions:
+- why does LONG still lose overall despite good MFE on winners?
+- is trailing giving back too much?
+- should LONG confidence threshold be increased?
+- do LONG losses cluster in specific volatility or volume conditions?
+- can LONG_ONLY be moved from slightly negative toward break-even or positive?
+
+CURRENT RESEARCH NOTEBOOK
+
+Notebook:
+data/notebooks/strategy_lab_experiment_01.ipynb
+
+Verified contents include:
+- raw data coverage
+- trade summary
+- feature distributions
+- regime table
+- side summary
+- portfolio comparison
+- MFE/MAE table
+- MFE/MAE by side/outcome
+- SHORT loss filter audit
+- SHORT filter variant audit
+- LONG_ONLY vs LONG+filtered_SHORT comparison
+
+WORKING CONTRACT RECONFIRMED
+
+- one mission at a time
+- no guessing on notebook state
+- no pretending we know what was not verified
+- no repo changes before enough evidence exists
+- prefer explicit, boring, observable changes
+- step by step
+
+HONEST CURRENT LABEL
+
+Mission 5B strategy lab:
+IN PROGRESS
+
+Sub-status:
+- analysis phase produced a decisive finding
+- SHORT quarantine now has evidence support
+- next meaningful move is repo change to establish LONG_ONLY baseline
+
+===
+MISSION LIST — NEXT ORDER
+
+MISSION 5B.1
+Quarantine SHORT in repo logic
+
+Goal:
+- establish LONG_ONLY as the new clean runtime baseline
+
+Definition of done:
+- SHORT entries are explicitly disabled
+- LONG still functions normally
+- behavior is configurable and observable
+- runtime truth on old-box confirms new behavior
+
+Notes:
+- keep this change small
+- do not mix with unrelated tuning
+
+MISSION 5B.2
+Run LONG_ONLY paper baseline
+
+Goal:
+- collect honest runtime behavior with SHORT removed
+
+Definition of done:
+- paper runtime observed under LONG_ONLY
+- decisions/trades confirm only LONG entries
+- new runtime snapshot captured
+- new trade summary produced
+
+MISSION 5B.3
+Analyze LONG_ONLY quality
+
+Goal:
+- understand why LONG still loses overall
+- isolate whether the main issue is entry selectivity, trailing, or regime mismatch
+
+Key questions:
+- what do LONG winners vs LONG losers look like?
+- how much MFE is being given back?
+- do LONG losses cluster by volatility, rsi, vol_z, or dollar_vol_z?
+- is confidence threshold too permissive?
+
+Definition of done:
+- notebook analysis produces clear LONG-side findings
+- one dominant LONG calibration hypothesis is selected
+
+MISSION 5B.4
+Choose first LONG calibration experiment
+
+Preferred small candidates:
+- raise LONG confidence threshold
+- improve LONG trailing behavior
+- test a simple LONG regime filter if evidence supports it
+
+Definition of done:
+- one change only
+- notebook evidence justifies it
+- exact file(s) identified before change
+
+MISSION 5B.5
+Apply one repo change for LONG calibration
+
+Goal:
+- implement only the chosen LONG-side change
+
+Definition of done:
+- local file truth verified
+- deploy safely to old-box
+- runtime truth verified
+- new baseline observation starts
+
+PARKED / DEFERRED
+
+SHORT redesign
+Status:
+- deferred / quarantined
+
+Reason:
+- current evidence says SHORT does not earn its place yet
+- revisit only after LONG baseline is understood
+
+Broad parameter sweeps
+Status:
+- deferred
+
+Reason:
+- current data is enough for exploratory work, not broad-trust optimization
+
+Notebook split into second notebook
+Status:
+- deferred
+
+Reason:
+- current notebook is still usable
+- no need to fragment context yet
+
+NON-NEGOTIABLE RULES FOR NEXT MISSIONS
+
+- step by step
+- know the exact file before proposing change
+- no broad multi-change surgery
+- verify old-box runtime truth
+- do not hide logic silently if observability can be preserved
+- keep conclusions honest
+===
+
+
