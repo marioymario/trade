@@ -2740,4 +2740,169 @@ NON-NEGOTIABLE RULES FOR NEXT MISSIONS
 - keep conclusions honest
 ===
 
+GENERAL HANDOFF — 2026-03-10 — MISSION 5B.2 LONG_ONLY BASELINE
 
+CURRENT BIG PICTURE
+
+System work is in a solid state, and strategy work has now crossed an important boundary:
+
+SHORT has been quarantined in live runtime.
+
+We are no longer debating whether SHORT is harmful in the current system.
+That was decided by notebook evidence and then promoted into repo + runtime truth.
+
+We are now entering the next clean phase:
+observe and measure LONG_ONLY honestly before making further strategy changes.
+
+WHAT IS ALREADY PROVEN
+
+System / runtime proofs already established from earlier missions:
+- Mission 4 PASS
+- Mission 5A PASS
+- submit-boundary entry matrix proven
+- STOP semantics proven during live position
+- realistic paper runtime proven
+- restart-safe idempotency proven
+- runtime observability improved
+- notebook workflow established under data/notebooks
+
+Strategy / research conclusions already established:
+- overall strategy is losing
+- LONG loses less than SHORT
+- SHORT is the larger liability
+- filtered SHORT still underperforms LONG_ONLY
+- LONG_ONLY is the current cleaner baseline
+
+MISSION 5B.1 — STATUS
+
+PASS
+
+What was done:
+- exact side-control file identified: files/strategy/rules.py
+- minimal repo change applied
+- SHORT explicitly disabled via side enable flags
+- LONG behavior left untouched
+- no hidden threshold hack used
+- no SHORT code deleted
+
+Runtime proof:
+- old-box file truth verified
+- container/runtime truth verified
+- mission proof script created:
+  ops/mission5b1_short_quarantine_check.sh
+
+Observed runtime evidence:
+- repeated post-cutoff rows in decisions.csv show:
+  should_enter=False
+  side=SHORT
+  reason=trend_down_but_short_disabled
+
+Meaning:
+- runtime still detects short-type opportunities
+- policy explicitly blocks them
+- observability is preserved
+- SHORT has lost runtime privileges
+
+CURRENT RUNTIME STATE
+
+old-box services:
+- paper up
+- trade up
+- dashboard up
+
+Current runtime behavior:
+- paper loop healthy
+- decisions continue recording
+- restart-safe idempotency still normal
+- repeated SHORT-disabled evidence observed overnight
+
+Canonical proof command for Mission 5B.1:
+./ops/mission5b1_short_quarantine_check.sh 2026-03-09T20:51:00+00:00
+
+CURRENT STRATEGY STATE
+
+Active baseline:
+- LONG_ONLY in runtime practice
+- SHORT quarantined
+
+Important note:
+- this does NOT prove LONG is good
+- this only proves SHORT is currently not allowed to degrade the portfolio further
+
+We now need honest observation of LONG-only runtime behavior before any more repo strategy changes.
+
+MISSION 5B.2 — CURRENT MISSION
+
+Run LONG_ONLY paper baseline
+
+Goal:
+- observe runtime behavior with SHORT removed
+- confirm new entries/trades are effectively LONG-only
+- collect a cleaner baseline for the next round of notebook analysis
+
+Definition of done:
+- enough fresh runtime collected under SHORT quarantine
+- no evidence of live SHORT entries after cutoff
+- updated trades/decisions snapshot captured
+- fresh trade summary available for LONG_ONLY baseline window
+
+WHAT NOT TO DO YET
+
+- do not re-enable SHORT
+- do not tune LONG threshold yet
+- do not change trailing yet
+- do not widen stops
+- do not mix in new strategy surgery before baseline observation is captured
+- do not start broad optimization
+- do not split notebooks unless needed
+
+NEXT ANALYSIS DIRECTION AFTER BASELINE WINDOW
+
+Mission 5B.3:
+Analyze LONG_ONLY quality
+
+Key questions:
+- why does LONG still lose overall?
+- are LONG entries too permissive?
+- is trailing giving back too much MFE?
+- do LONG losses cluster in certain volatility / volume / RSI conditions?
+- is one simple LONG-side calibration hypothesis stronger than the others?
+
+Best candidate categories later:
+- raise LONG confidence threshold
+- improve LONG trailing behavior
+- add a simple LONG regime filter only if notebook evidence supports it
+
+MISSION SCRIPT NOTE
+
+Mission-scoped scripts are now considered valid when they are:
+- repeatable
+- read-only or narrowly scoped
+- operationally important
+- explicit about PASS / PENDING / FAIL
+- tied clearly to one mission
+
+Current example:
+- ops/mission5b1_short_quarantine_check.sh
+
+This is part of the project’s proof discipline and should be expanded selectively, not carelessly.
+
+WORKING CONTRACT RECONFIRMED
+
+- one mission at a time
+- no guessing
+- know exact file truth before changes
+- prefer explicit and observable behavior
+- verify runtime truth on old-box
+- do not mix multiple strategy changes into one patch
+- baseline first, calibration second
+
+HONEST CURRENT LABEL
+
+Mission 5B.2:
+IN PROGRESS
+
+Sub-status:
+- SHORT quarantine complete and proven
+- LONG_ONLY baseline now active
+- current job is observation, not surgery
