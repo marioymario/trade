@@ -7,6 +7,10 @@ _model = EntryModel()
 
 CONFIDENCE_ENTER = 0.60  # start conservative
 
+# Side enable flags (Mission 5B.1 quarantine)
+ENABLE_LONG: bool = True
+ENABLE_SHORT: bool = False
+
 # Exit parameters (keep deterministic; make configurable later)
 ATR_MULT: float = 2.0          # initial stop distance
 TRAIL_ATR_MULT: float = 2.0    # trailing stop distance
@@ -135,6 +139,20 @@ def evaluate_entry(features, market_state: MarketState) -> EntrySignal:
     import os
     force_side = os.getenv("FORCE_SIDE", "").strip().upper()
     if force_side in ("LONG", "SHORT"):
+        if force_side == "LONG" and not ENABLE_LONG:
+            return EntrySignal(
+                should_enter=False,
+                side="LONG",
+                confidence=confidence,
+                reason="forced_long_but_long_disabled",
+            )
+        if force_side == "SHORT" and not ENABLE_SHORT:
+            return EntrySignal(
+                should_enter=False,
+                side="SHORT",
+                confidence=confidence,
+                reason="forced_short_but_short_disabled",
+            )
         if confidence >= CONFIDENCE_ENTER:
             return EntrySignal(
                 should_enter=True,
@@ -150,6 +168,13 @@ def evaluate_entry(features, market_state: MarketState) -> EntrySignal:
         )
 
     if market_state.trend == "up" and confidence >= CONFIDENCE_ENTER:
+        if not ENABLE_LONG:
+            return EntrySignal(
+                should_enter=False,
+                side="LONG",
+                confidence=confidence,
+                reason="trend_up_but_long_disabled",
+            )
         return EntrySignal(
             should_enter=True,
             side="LONG",
@@ -158,6 +183,13 @@ def evaluate_entry(features, market_state: MarketState) -> EntrySignal:
         )
 
     if market_state.trend == "down" and confidence >= CONFIDENCE_ENTER:
+        if not ENABLE_SHORT:
+            return EntrySignal(
+                should_enter=False,
+                side="SHORT",
+                confidence=confidence,
+                reason="trend_down_but_short_disabled",
+            )
         return EntrySignal(
             should_enter=True,
             side="SHORT",

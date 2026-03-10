@@ -1,6 +1,6 @@
 # CANONICAL CURRENT STATE — MJÖLNIR
 
-Date: 2026-03-06
+Date: 2026-03-10
 
 This is the current canonical system-state document.
 
@@ -19,9 +19,19 @@ Build an operationally boring, reproducible, observable paper-trading system wit
 - decision logging
 - degraded-mode safety
 - disciplined deploy workflow
+- notebook-based strategy evaluation
+- mission-scoped proof scripts
 - repo-aware local RAG assistant
 
 This is not yet a real-money-ready system.
+
+The project now has two active layers:
+
+1. system / runtime layer
+2. strategy / research layer
+
+The system layer is in a solid enough state to support strategy work.
+The current strategy layer focus is LONG_ONLY baseline observation.
 
 --------------------------------------------------
 2) TOPOLOGY
@@ -30,6 +40,7 @@ This is not yet a real-money-ready system.
 Local machine:
 - edit code
 - manage repo
+- maintain docs/handoffs
 - deploy to old-box
 
 old-box:
@@ -57,6 +68,16 @@ Main runtime loop:
 
 paper -> python -m files.main
 
+Current compose/runtime truth:
+- paper bind-mounts ./files into /work/files
+- paper bind-mounts ./data into /work/data
+- paper uses working_dir=/work
+
+This means:
+- code changes in bind-mounted files do not require image rebuild
+- restart paper is sufficient for code determinism after code change
+- .env / compose env changes still require recreate
+
 RAG stack is separate and uses:
 
 - docker-compose.rag.yml
@@ -77,8 +98,16 @@ Runtime truth on old-box:
 - /home/kk7wus/trade_flags/
 - data/
 
+Research truth:
+- notebook analysis
+- decisions.csv
+- trades.csv
+- runtime snapshots
+- mission proof scripts
+
 Important:
 Do not assume local runtime state matches old-box runtime state.
+Do not assume notebook conclusions are live until repo + runtime proof confirm them.
 
 --------------------------------------------------
 5) OPERATOR CONTROL PLANE
@@ -108,7 +137,7 @@ They do not require restart.
 
 Canonical deploy command from local:
 
-OLD_BOX_HOST=kk7wus@old-box OLD_BOX_DIR=/home/kk7wus/Projects/trade ops/deploy_oldbox.sh
+OLD_BOX_HOST=kk7wus@old-box OLD_BOX_DIR=/home/kk7wus/Projects/trade ./ops/deploy_oldbox.sh
 
 Deploy contract:
 - rsync
@@ -119,21 +148,22 @@ Deploy contract:
   - trade_flags/
 
 After deploy:
-- restart paper for code determinism when code changed
-- force-recreate paper when .env changed
+- restart paper for code determinism when bind-mounted code changed
+- force-recreate paper when env/compose/runtime container configuration changed
 
 Known current dragon:
 - deploy_oldbox.sh still needs more boring/deterministic hardening
+- deploy verification should continue improving
 
 --------------------------------------------------
 7) RUNTIME RESTART RULES
 --------------------------------------------------
 
-Code changes in bind-mounted files:
+Bind-mounted code changes:
 - deploy
 - restart paper
 
-.env changes:
+.env or compose env changes:
 - force-recreate paper
 
 Flag file changes:
@@ -145,7 +175,11 @@ Restart paper:
 docker compose restart paper
 
 Recreate paper:
-docker compose up -d --force-recreate paper
+docker compose up -d --build --force-recreate paper
+
+Operational lesson now confirmed:
+- inspect compose truth before assuming rebuild is required
+- prefer the smallest correct restart action
 
 --------------------------------------------------
 8) OBSERVABILITY
@@ -166,6 +200,8 @@ This separation is important and has been preserved.
 Status beacon:
 ${FLAGS_DIR:-$HOME/trade_flags}/status.txt
 
+Decisions truth is the primary runtime proof source for strategy-policy validation.
+
 --------------------------------------------------
 9) SAFETY RAILS
 --------------------------------------------------
@@ -177,6 +213,11 @@ Confirmed current safety themes:
 - daily/risk gates exist in the design
 - machine-readable blocked reasons exist
 - degraded mode is real
+- submit-boundary enforcement is real
+
+Current safety posture:
+- safety semantics are much stronger than early project state
+- strategy quality is now the larger concern, not basic execution discipline
 
 --------------------------------------------------
 10) DEGRADED MODE
@@ -200,7 +241,100 @@ Cadence detector notes:
 - engineering stance: cadence design verified, degraded pipeline proven through features_invalid path
 
 --------------------------------------------------
-11) CURRENT RAG STATE
+11) STRATEGY RESEARCH STATE
+--------------------------------------------------
+
+Strategy work is now active and notebook-driven.
+
+Current primary notebook:
+data/notebooks/strategy_lab_experiment_01.ipynb
+
+Verified notebook capabilities include:
+- raw data coverage checks
+- decisions/trades loading
+- feature computation
+- regime analysis
+- side analysis
+- MFE/MAE analysis
+- SHORT loss audit
+- filtered SHORT audit
+- LONG_ONLY vs LONG+filtered_SHORT comparison
+
+Current research conclusion:
+- strategy loses overall
+- LONG loses less than SHORT
+- SHORT is the larger liability
+- filtered SHORT still underperforms LONG_ONLY
+- LONG_ONLY is the current cleaner baseline
+
+Operational conclusion:
+SHORT has been quarantined.
+
+Important:
+This does not prove LONG is good.
+It only proves SHORT does not currently deserve runtime privileges.
+
+--------------------------------------------------
+12) CURRENT STRATEGY POLICY
+--------------------------------------------------
+
+Current live runtime policy:
+- LONG enabled
+- SHORT quarantined
+
+Exact control file:
+files/strategy/rules.py
+
+Current implementation style:
+- explicit side enable flags
+- minimal patch
+- no deleted SHORT code
+- no fake threshold hack
+- no mixed LONG tuning included in the same change
+
+Observed runtime proof:
+post-cutoff decisions rows repeatedly show:
+
+- should_enter=False
+- side=SHORT
+- reason=trend_down_but_short_disabled
+
+Meaning:
+- runtime still detects short-type setups
+- policy blocks them explicitly
+- observability is preserved
+- SHORT has lost runtime privileges
+
+--------------------------------------------------
+13) MISSION-SCOPED PROOF SCRIPTS
+--------------------------------------------------
+
+Mission-scoped proof scripts are now a real part of project workflow.
+
+Purpose:
+- repeatable runtime proof
+- reduced operator error
+- clearer PASS / PENDING / FAIL outcomes
+- easier handoff and reproducibility
+
+Current example:
+ops/mission5b1_short_quarantine_check.sh
+
+This script proves Mission 5B.1 runtime truth by checking post-cutoff
+SHORT-related rows in decisions.csv.
+
+Mission scripts should be:
+- mission-scoped
+- small
+- readable
+- mostly read-only
+- explicit about what they prove
+- explicit about PASS / PENDING / FAIL
+
+They should not become junk-drawer automation.
+
+--------------------------------------------------
+14) CURRENT RAG STATE
 --------------------------------------------------
 
 RAG is now a real part of the system environment.
@@ -234,7 +368,28 @@ Current RAG weaknesses:
 RAG is useful, but not yet teammate-grade for long code-path reconstruction.
 
 --------------------------------------------------
-12) WORK RHYTHM / CONTRACT
+15) DOCUMENTATION / HANDOFF MODEL
+--------------------------------------------------
+
+Current doc model:
+
+Root current files:
+- HANDOFF.md
+- docs/CANONICAL_CURRENT_STATE.md
+
+Archive files:
+- docs/ARCHIVE_handoffs.md
+- docs/ARCHIVE_project_snapshots.md
+
+Rules:
+- current files hold current truth only
+- superseded versions move to archive files
+- do not endlessly append old handoffs into root HANDOFF.md
+
+This keeps current truth sharp and archive truth historical.
+
+--------------------------------------------------
+16) WORK RHYTHM / CONTRACT
 --------------------------------------------------
 
 The current engineering contract is:
@@ -250,74 +405,93 @@ The current engineering contract is:
 
 Do not guess files.
 Do not skip verification.
+Do not contaminate a clean baseline with unrelated changes.
 
 --------------------------------------------------
-13) CURRENT SCORECARD
+17) CURRENT SCORECARD
 --------------------------------------------------
 
 Overall paper-system maturity:
-74%
+78%
 
 Real-money readiness:
-28%
+30%
 
 Important interpretation:
 - not a toy project
 - not ready for real money
-- strong engineering foundation
-- still has operational dragons left
+- system layer is materially stronger than before
+- strategy edge is still not proven
+- strategy quality is now the main constraint
 
 Current area estimates:
 
-- repo / architecture clarity: 85%
-- development workflow discipline: 90%
-- deploy / sync reliability: 62%
-- runtime reproducibility: 70%
-- safety rails / risk controls: 84%
-- observability: 86%
-- degraded mode / failure handling: 80%
-- cadence protection: 78%
-- paper execution path: 82%
+- repo / architecture clarity: 86%
+- development workflow discipline: 92%
+- deploy / sync reliability: 66%
+- runtime reproducibility: 78%
+- safety rails / risk controls: 86%
+- observability: 89%
+- degraded mode / failure handling: 82%
+- cadence protection: 79%
+- paper execution path: 85%
 - dashboard / operator UX: 73%
-- documentation / handoff quality: 76%
-- repo RAG assistant: 68%
-- team/process maturity: 88%
+- documentation / handoff quality: 84%
+- strategy research workflow: 81%
+- repo RAG assistant: 69%
+- team/process maturity: 90%
 
 --------------------------------------------------
-14) CURRENT TOP PRIORITIES
+18) CURRENT TOP PRIORITIES
 --------------------------------------------------
 
 In order:
 
-1. Harden deploy_oldbox.sh and deploy verification
-2. Normalize canonical docs
-3. Increase unattended paper confidence
-4. Improve dashboard/operator UX
-5. Continue improving RAG until it is genuinely teammate-grade
+1. Observe LONG_ONLY paper baseline honestly
+2. Capture fresh runtime snapshot under SHORT quarantine
+3. Analyze LONG_ONLY behavior in notebook
+4. Improve mission-script / commands documentation
+5. Harden deploy_oldbox.sh and deploy verification
+6. Improve dashboard/operator UX
+7. Continue improving RAG until it is genuinely teammate-grade
 
 --------------------------------------------------
-15) CANONICAL RULE
+19) CURRENT NON-NEGOTIABLES
+--------------------------------------------------
+
+- do not re-enable SHORT without evidence
+- do not tune LONG yet before baseline observation
+- do not mix multiple strategy changes into one patch
+- do not touch runtime logic casually while LONG_ONLY baseline is being collected
+- parallel-safe work is allowed only if it does not contaminate current runtime truth
+
+--------------------------------------------------
+20) CANONICAL RULE
 --------------------------------------------------
 
 If another document conflicts with this one:
 
 - archive snapshot loses
+- old handoff loses
 - generic/generated handoff loses
 - current canonical state wins
 
 --------------------------------------------------
-16) BOTTOM LINE
+21) BOTTOM LINE
 --------------------------------------------------
 
 The system now has:
 - real safety thinking
 - real observability
 - disciplined workflow
-- real runtime contracts
+- mission-scoped proof discipline
+- notebook-backed strategy decisions
+- a proven live SHORT quarantine
 - a usable repo assistant
 
-The biggest remaining leverage is operational boringness:
-- deploy clarity
-- runtime reproducibility
-- cleaner docs
-- trustworthy long-run behavior
+The biggest current leverage is no longer just semantics proofing.
+
+The biggest current leverage is:
+- honest LONG_ONLY baseline observation
+- disciplined next-step strategy calibration
+- continued operational boringness
