@@ -1,0 +1,30 @@
+# Runtime-only / operator-owned (MUST NOT SHIP)
+.env
+data/
+trade_flags/
+**/trade_flags/
+**/status.txt
+!files/data/paths.py
+
+# Python / build junk
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+**/.mypy_cache/
+.ruff_cache/
+**/.ruff_cache/
+*.pyc
+*.pyo
+
+# VCS + editor
+.git/
+.gitignore
+.gitattributes
+.github/
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store

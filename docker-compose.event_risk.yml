@@ -1,0 +1,24 @@
+services:
+  event_risk:
+    build:
+      context: .
+      dockerfile: docker/event_risk.Dockerfile
+    image: trade-event-risk
+    container_name: event_risk
+    restart: "no"
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      TZ: America/Los_Angeles
+      EVENT_RISK_STATUS: ${EVENT_RISK_STATUS:-ok}
+      EVENT_RISK_LEVEL: ${EVENT_RISK_LEVEL:-normal}
+      EVENT_RISK_NEWS_REGIME: ${EVENT_RISK_NEWS_REGIME:-calm}
+      EVENT_RISK_SCORE: ${EVENT_RISK_SCORE:-0.1}
+      EVENT_RISK_TTL_SECONDS: ${EVENT_RISK_TTL_SECONDS:-900}
+      EVENT_RISK_REASON_CODES: ${EVENT_RISK_REASON_CODES:-}
+      EVENT_RISK_SOURCE_COUNT: ${EVENT_RISK_SOURCE_COUNT:-1}
+    working_dir: /work
+    volumes:
+      - ./files:/work/files
+      - ./event_risk:/work/event_risk
+      - ./data:/work/data
+    command: python -m event_risk.main
