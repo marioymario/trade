@@ -144,3 +144,55 @@ If archive text conflicts with any current handoff or operator guide, the curren
 
 Archive is reference.
 Canonical docs are truth.
+===
+
+# CANONICAL CURRENT STATE — MJÖLNIR
+
+Date: 2026-03-06
+
+This is the current canonical system-state document.
+
+If another note, older handoff, or historical snapshot conflicts with this file, this file wins.
+
+--------------------------------------------------
+1) MISSION
+--------------------------------------------------
+
+Build an operationally boring, reproducible, observable paper-trading system with:
+
+- local development
+- old-box runtime
+- file-based operator controls
+- guarded execution
+- decision logging
+- degraded-mode safety
+- disciplined deploy workflow
+- repo-aware local RAG assistant
+
+This is not yet a real-money-ready system.
+
+--------------------------------------------------
+2) TOPOLOGY
+--------------------------------------------------
+
+Local machine:
+- edit code
+- manage repo
+- deploy to old-box
+
+old-box:
+- runtime execution
+- paper loop
+- dashboard
+- operator control plane
+- runtime-owned .env / data / trade_flags
+
+Repo root:
+
+~/Projects/trade
+
+--------------------------------------------------
+3) CONTAINERS / SERVICES
+--------------------------------------------------
+
+

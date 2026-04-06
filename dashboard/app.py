@@ -1,3 +1,4 @@
+##trade/dashboard/app.py
 import os
 import sys
 from pathlib import Path
@@ -14,6 +15,12 @@ try:
 except Exception as e:
     compute_features = None
     _import_err = e
+
+try:
+    from event_risk.service import get_event_risk_dashboard_summary  # type: ignore
+except Exception as e:
+    get_event_risk_dashboard_summary = None
+    _event_risk_import_err = e
 
 st.set_page_config(page_title="Trade Dashboard", layout="wide")
 
@@ -108,6 +115,16 @@ def load_csv(path: str, max_rows: int) -> pd.DataFrame:
     return df
 
 
+@st.cache_data(ttl=10)
+def load_event_risk_summary():
+    if get_event_risk_dashboard_summary is None:
+        return None
+    try:
+        return get_event_risk_dashboard_summary()
+    except Exception:
+        return None
+
+
 def ts_from_ms(v):
     if v is None:
         return pd.NaT
@@ -156,12 +173,35 @@ def freshness_badge(decisions_mtime_utc: str, *, stale_after_s: int = 180) -> tu
     return ("decisions", f"STALE ({age_s}s)", "bad")
 
 
+def event_risk_badge(summary) -> tuple[str, str, str]:
+    if not summary:
+        return ("event_risk", "unavailable", "warn")
+
+    status = str(summary.get("status", "error")).strip().lower()
+    current = summary.get("current") or {}
+    level = str(current.get("event_risk_level", "na")).strip().lower()
+
+    if status == "ok":
+        if level == "normal":
+            return ("event_risk", "OK / normal", "good")
+        if level == "elevated":
+            return ("event_risk", "OK / elevated", "warn")
+        if level == "extreme":
+            return ("event_risk", "OK / extreme", "bad")
+        return ("event_risk", "OK", "good")
+
+    if status == "stale":
+        return ("event_risk", "STALE", "warn")
+
+    return ("event_risk", "ERROR", "bad")
+
+
 def _can_write_dir(d: Path) -> bool:
     try:
         d.mkdir(parents=True, exist_ok=True)
         p = d / ".write_test.tmp"
         p.write_text("ok")
-        p.unlink(missing_ok=True)  # py3.8+; if older, except below will catch
+        p.unlink(missing_ok=True)
         return True
     except Exception:
         return False
@@ -171,7 +211,7 @@ def _set_flag(flag_path: Path, on: bool) -> tuple[bool, str]:
     try:
         flag_path.parent.mkdir(parents=True, exist_ok=True)
         if on:
-            flag_path.write_text("")  # create or truncate
+            flag_path.write_text("")
         else:
             try:
                 flag_path.unlink()
@@ -461,7 +501,6 @@ status_path = flags_path / "status.txt"
 status_txt = _read_text(status_path)
 status_kv = parse_kv_text(status_txt)
 
-# Derive canonical flag file paths (what old-box uses)
 kill_switch_file = Path(os.environ.get("KILL_SWITCH_FILE", str(flags_path / "STOP")))
 halt_orders_file = Path(os.environ.get("HALT_ORDERS_FILE", str(flags_path / "HALT")))
 arm_file = Path(os.environ.get("ARM_FILE", str(flags_path / "ARM")))
@@ -549,6 +588,7 @@ trades_csv = Path("data/processed/trades") / data_tag / symbol / timeframe / "tr
 
 decisions = load_csv(str(decisions_csv), max_rows=200000)
 trades = load_csv(str(trades_csv), max_rows=200000)
+event_risk_summary = load_event_risk_summary()
 
 latest_dec = None
 if not decisions.empty:
@@ -583,7 +623,6 @@ limits_reason = status_kv.get("limits_reason", "")
 trades_today = status_kv.get("trades_today", "")
 pnl_today_usd = status_kv.get("pnl_today_usd", "")
 
-# staleness check (prevents "stale beacon" confusion)
 age_sec = None
 try:
     dt = _parse_utc_iso(beacon_ts)
@@ -628,6 +667,7 @@ def tone_trend(v: str) -> str:
 
 
 fresh_label, fresh_value, fresh_tone = freshness_badge(dec_mtime, stale_after_s=180)
+er_label, er_value, er_tone = event_risk_badge(event_risk_summary)
 
 with st.container():
     c1, c2 = st.columns([1, 1])
@@ -658,6 +698,7 @@ with st.container():
                     pill("ARMED", ARMED, "good" if (ARMED or "").strip() == "1" else "warn"),
                     pill("DRY_RUN", DRY_RUN, "good" if (DRY_RUN or "").strip() == "1" else "warn"),
                     pill(fresh_label, fresh_value, fresh_tone),
+                    pill(er_label, er_value, er_tone),
                 ]
             ),
             unsafe_allow_html=True,
@@ -709,6 +750,36 @@ with st.container():
             unsafe_allow_html=True,
         )
         st.markdown("</div>", unsafe_allow_html=True)
+
+st.subheader("Event-Risk")
+if get_event_risk_dashboard_summary is None:
+    st.warning(f"Event-Risk import unavailable: {_event_risk_import_err}")
+elif not event_risk_summary:
+    st.info("No Event-Risk summary available yet.")
+else:
+    current_er = event_risk_summary.get("current") or {}
+    latest_er_hist = event_risk_summary.get("latest_history") or {}
+
+    a1, a2, a3, a4, a5 = st.columns([1, 1, 1, 1, 1])
+    a1.metric("Status", event_risk_summary.get("status", "na"))
+    a2.metric("Level", current_er.get("event_risk_level", "na"))
+    a3.metric("Regime", current_er.get("news_regime", "na"))
+    a4.metric("Score", current_er.get("event_risk_score", "na"))
+    a5.metric("Reason count", len(current_er.get("reason_codes", [])))
+
+    st.caption(
+        f"current.as_of_utc={current_er.get('as_of_utc', 'na')} · "
+        f"ttl_seconds={current_er.get('ttl_seconds', 'na')} · "
+        f"history_rows_available={event_risk_summary.get('history_rows_available', 0)}"
+    )
+
+    if current_er.get("reason_codes"):
+        st.markdown("**Current reason codes**")
+        st.code("\n".join(str(x) for x in current_er.get("reason_codes", [])), language="text")
+
+    if latest_er_hist:
+        st.markdown("**Latest history snapshot**")
+        st.json(latest_er_hist)
 
 colA, colB = st.columns([1, 1])
 with colA:

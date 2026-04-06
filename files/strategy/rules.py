@@ -1,3 +1,4 @@
+## trade/files/strategy/rules.py
 from __future__ import annotations
 
 from files.core.types import EntrySignal, ExitSignal, MarketState, Position
@@ -116,7 +117,6 @@ def compute_trailing_stop_update(
     new_stop = min(float(prev_stop), float(candidate))
     return float(new_stop), float(anchor), "ratchet"
 
-
 def evaluate_entry(features, market_state: MarketState) -> EntrySignal:
     if not market_state.tradable:
         return EntrySignal(
@@ -126,19 +126,20 @@ def evaluate_entry(features, market_state: MarketState) -> EntrySignal:
             reason=market_state.reason or "not_tradable",
         )
 
-    confidence = float(_model.predict_confidence(features))
-
-    if confidence != confidence:
-        return EntrySignal(
-            should_enter=False,
-            side="LONG",
-            confidence=0.0,
-            reason="confidence_nan",
-        )
-
     import os
     force_side = os.getenv("FORCE_SIDE", "").strip().upper()
+
     if force_side in ("LONG", "SHORT"):
+        confidence = float(_model.predict_confidence(features, side=force_side))
+
+        if confidence != confidence:
+            return EntrySignal(
+                should_enter=False,
+                side="LONG",
+                confidence=0.0,
+                reason="confidence_nan",
+            )
+
         if force_side == "LONG" and not ENABLE_LONG:
             return EntrySignal(
                 should_enter=False,
@@ -167,22 +168,65 @@ def evaluate_entry(features, market_state: MarketState) -> EntrySignal:
             reason=f"forced_{force_side.lower()}_but_low_confidence",
         )
 
-    if market_state.trend == "up" and confidence >= CONFIDENCE_ENTER:
-        if not ENABLE_LONG:
+    if market_state.trend == "up":
+        confidence = float(_model.predict_confidence(features, side="LONG"))
+
+        if confidence != confidence:
             return EntrySignal(
                 should_enter=False,
                 side="LONG",
-                confidence=confidence,
-                reason="trend_up_but_long_disabled",
+                confidence=0.0,
+                reason="confidence_nan",
             )
+
+        if confidence >= CONFIDENCE_ENTER:
+            if not ENABLE_LONG:
+                return EntrySignal(
+                    should_enter=False,
+                    side="LONG",
+                    confidence=confidence,
+                    reason="trend_up_but_long_disabled",
+                )
+            return EntrySignal(
+                should_enter=True,
+                side="LONG",
+                confidence=confidence,
+                reason="trend_up_and_confident",
+            )
+
         return EntrySignal(
-            should_enter=True,
+            should_enter=False,
             side="LONG",
             confidence=confidence,
-            reason="trend_up_and_confident",
+            reason="trend_up_but_low_confidence",
         )
 
-    if market_state.trend == "down" and confidence >= CONFIDENCE_ENTER:
+    if market_state.trend == "down":
+        confidence = float(_model.predict_confidence(features, side="SHORT"))
+
+        if confidence != confidence:
+            return EntrySignal(
+                should_enter=False,
+                side="LONG",
+                confidence=0.0,
+                reason="confidence_nan",
+            )
+
+        if confidence >= CONFIDENCE_ENTER:
+            if not ENABLE_SHORT:
+                return EntrySignal(
+                    should_enter=False,
+                    side="SHORT",
+                    confidence=confidence,
+                    reason="trend_down_but_short_disabled",
+                )
+            return EntrySignal(
+                should_enter=True,
+                side="SHORT",
+                confidence=confidence,
+                reason="trend_down_and_confident",
+            )
+
         if not ENABLE_SHORT:
             return EntrySignal(
                 should_enter=False,
@@ -190,20 +234,20 @@ def evaluate_entry(features, market_state: MarketState) -> EntrySignal:
                 confidence=confidence,
                 reason="trend_down_but_short_disabled",
             )
+
         return EntrySignal(
-            should_enter=True,
+            should_enter=False,
             side="SHORT",
             confidence=confidence,
-            reason="trend_down_and_confident",
+            reason="trend_down_but_low_confidence",
         )
 
     return EntrySignal(
         should_enter=False,
         side="LONG",
-        confidence=confidence,
+        confidence=0.0,
         reason="not_confident_or_flat_trend",
     )
-
 
 def _bars_held(*, entry_ts_ms: int, now_ts_ms: int, expected_step_s: int) -> int:
     if expected_step_s <= 0:

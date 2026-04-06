@@ -1,0 +1,251 @@
+DATA STORAGE CHECKS
+
+Purpose
+
+This document explains how to check:
+- where project data lives
+- which disks/mounts back it
+- how much space the project currently uses
+- how large raw and processed data are
+- how to estimate daily / weekly data size
+- where archive storage may already exist
+
+This is an operational reference.
+It is not mission-specific.
+It should stay useful over time.
+
+--------------------------------------------------
+1) CURRENT FINDINGS (2026-03-18)
+--------------------------------------------------
+
+Current filesystem picture:
+
+- root filesystem:
+  /dev/nvme1n1p3
+  size: 460G
+  used: 48G
+  free: 389G
+  mount: /
+
+- extra storage filesystem:
+  /dev/nvme0n1
+  size: 916G
+  used: 948K
+  free: 870G
+  mount: /mnt/trade_storage
+
+Important conclusion:
+There is a large secondary storage device mounted at:
+
+/mnt/trade_storage
+
+Current project size:
+
+- repo size:
+  97M
+
+- current repo-local data size:
+  2.0M
+
+Current repo-local data breakdown:
+
+- data/raw:
+  572K
+
+- data/processed:
+  1.2M
+
+Archive / storage-looking paths discovered:
+
+- /mnt/trade_storage
+- /mnt/trade_storage/data
+- /mnt/trade_storage/data/postgres_data
+- /mnt/trade_storage/trade_archives
+- /home/kk7wus/ops_logs_archive
+
+Current raw daily partition sizes for:
+data/raw/paper_oldbox_live/BTC_USD/5m/date=YYYY-MM-DD
+
+Observed daily size:
+- mostly 24K/day
+- some shorter or partial days smaller
+
+Rough weekly estimate at current observed scale:
+- about 7 * 24K = 168K/week
+
+Important note:
+At current observed scale, raw local BTC/USD 5m partitions are tiny.
+Storage pressure is much more likely to come from:
+- archives
+- logs
+- database/storage sidecars
+- future history artifacts
+- data outside repo-local ./data
+
+--------------------------------------------------
+2) WHEN TO RUN THESE CHECKS
+--------------------------------------------------
+
+Use these checks:
+- before long baseline runs
+- before pausing/resuming paper collection
+- before archive/migration work
+- when disk use looks suspicious
+- before adding new storage-heavy artifacts
+- before adding dashboard storage panels later
+
+--------------------------------------------------
+3) CORE CHECKS
+--------------------------------------------------
+
+A) Check filesystems, free space, mounts, and devices
+
+cd ~/Projects/trade
+
+echo '=== FILESYSTEMS ==='
+df -h
+
+echo
+echo '=== MOUNTS (interesting) ==='
+mount | egrep '/home|/mnt|/media|Projects|trade|archive'
+
+echo
+echo '=== BLOCK DEVICES ==='
+lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS
+
+What this tells you:
+- available space
+- active mount points
+- whether a second disk is mounted
+- what device backs each mount
+
+--------------------------------------------------
+4) PROJECT SIZE CHECKS
+--------------------------------------------------
+
+B) Check total project size and top-level usage
+
+cd ~/Projects/trade
+
+echo '=== PROJECT SIZE ==='
+du -sh .
+
+echo
+echo '=== TOP-LEVEL SIZES ==='
+du -sh ./* 2>/dev/null | sort -h
+
+echo
+echo '=== DATA TREE SIZES ==='
+du -sh data data/* data/processed/* 2>/dev/null | sort -h
+
+What this tells you:
+- total repo size
+- which top-level directories are large
+- how much data/ is contributing
+
+--------------------------------------------------
+5) RAW VS PROCESSED BREAKDOWN
+--------------------------------------------------
+
+C) Check raw and processed data usage
+
+cd ~/Projects/trade
+
+echo '=== RAW BREAKDOWN ==='
+du -sh data/raw data/raw/* data/raw/*/* data/raw/*/*/* 2>/dev/null | sort -h | tail -n 50
+
+echo
+echo '=== PROCESSED BREAKDOWN ==='
+du -sh data/processed data/processed/* data/processed/*/* data/processed/*/*/* 2>/dev/null | sort -h | tail -n 100
+
+What this tells you:
+- whether raw or processed artifacts are the main storage driver
+- which subtree is growing
+
+--------------------------------------------------
+6) CANDIDATE LARGE STORAGE PATHS
+--------------------------------------------------
+
+D) Check likely archive/storage locations
+
+echo '=== CANDIDATE LARGE STORAGE PATHS ==='
+du -sh /mnt/* /media/* /home/kk7wus/* 2>/dev/null | sort -h | tail -n 50
+
+find /home/kk7wus /mnt /media -maxdepth 3 \( -iname '*archive*' -o -iname '*data*' -o -iname '*disk*' -o -iname '*storage*' \) 2>/dev/null
+
+What this tells you:
+- where other storage-heavy directories may already exist
+- whether archive paths live outside the repo
+- whether the large mounted disk is actually being used
+
+--------------------------------------------------
+7) DAILY RAW PARTITION CHECKS
+--------------------------------------------------
+
+E) Check raw daily partitions and estimate daily/weekly size
+
+cd ~/Projects/trade
+
+echo '=== RAW DAILY PARTITIONS ==='
+find data/raw -type d -name 'date=*' | sort
+
+echo
+echo '=== RAW DAILY SIZES ==='
+find data/raw -type d -name 'date=*' -print0 | xargs -0 du -sh | sort -h
+
+Focused BTC/USD 5m version:
+
+cd ~/Projects/trade
+find data/raw -type d -path '*/BTC_USD/5m/date=*' -print0 | xargs -0 du -sh | sort
+
+What this tells you:
+- exact daily partition sizes
+- rough weekly cost
+- whether raw data growth is stable or changing
+
+--------------------------------------------------
+8) CURRENT INTERPRETATION RULES
+--------------------------------------------------
+
+Important:
+The current repo-local data size is small.
+
+Do not assume:
+- that repo-local ./data is the full storage story
+- that archives have already been moved into current repo-local paths
+- that the mounted 916G disk is unused just because current repo-local data is tiny
+
+Current likely situation:
+- repo-local active artifacts are small
+- larger future storage needs may live or should live under /mnt/trade_storage
+- archive/storage planning should inspect /mnt/trade_storage more closely when needed
+
+--------------------------------------------------
+9) LATER IDEAS
+--------------------------------------------------
+
+Possible future small dashboard panel:
+- current repo size
+- current data/ size
+- raw size
+- processed size
+- last daily raw partition size
+- root free %
+- /mnt/trade_storage free %
+- active mount backing storage
+
+This is optional and should only be done later.
+The current step is documentation, not dashboard work.
+
+--------------------------------------------------
+10) CURRENT BOTTOM LINE
+--------------------------------------------------
+
+As of 2026-03-18:
+
+- storage pressure is not currently a blocker
+- root disk has plenty of free space
+- mounted trade storage disk has a very large amount of free space
+- repo-local raw/processed data are small
+- weekly raw BTC/USD 5m storage in current repo-local partitions is tiny
+- future storage attention should focus more on archive paths and mounted storage usage than on current repo-local raw partitions alone

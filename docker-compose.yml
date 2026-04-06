@@ -109,5 +109,6 @@ services:
     volumes:
       - /home/kk7wus/trade_flags:/home/kk7wus/trade_flags:rw
       - ./files:/work/files:ro
+      - ./event_risk:/work/event_risk:ro
       - ./data:/work/data:ro
       - ./dashboard:/app:rw
