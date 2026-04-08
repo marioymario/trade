@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from event_risk.adapters.file_source import get_file_event_risk_payload
+from event_risk.adapters.guardian import get_guardian_event_risk_payload
 from event_risk.adapters.mock import get_mock_event_risk_payload
 from event_risk.schema import validate_event_risk_payload
 from event_risk.writer import EVENT_RISK_HISTORY_FIELDS
@@ -27,6 +28,9 @@ def _load_event_risk_payload_from_source() -> dict[str, Any]:
 
     if source == "file":
         return get_file_event_risk_payload()
+
+    if source == "guardian":
+        return get_guardian_event_risk_payload()
 
     raise ValueError(f"Unsupported EVENT_RISK_SOURCE: {source!r}")
 
