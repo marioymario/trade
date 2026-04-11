@@ -14,6 +14,7 @@ from event_risk.adapters.guardian import get_guardian_event_risk_payload
 from event_risk.adapters.mock import get_mock_event_risk_payload
 from event_risk.adapters.newsapi import get_newsapi_event_risk_payload
 from event_risk.adapters.newsdata import get_newsdata_event_risk_payload
+from event_risk.merge import merge_event_risk_payloads
 from event_risk.schema import validate_event_risk_payload
 from event_risk.writer import EVENT_RISK_HISTORY_FIELDS
 from files.data.paths import event_risk_current_json_path, event_risk_history_csv_path
@@ -23,9 +24,7 @@ def _get_event_risk_source() -> str:
     return os.environ.get("EVENT_RISK_SOURCE", "mock").strip().lower() or "mock"
 
 
-def _load_event_risk_payload_from_source() -> dict[str, Any]:
-    source = _get_event_risk_source()
-
+def _load_single_source_event_risk_payload(source: str) -> dict[str, Any]:
     if source == "mock":
         return get_mock_event_risk_payload()
 
@@ -45,6 +44,33 @@ def _load_event_risk_payload_from_source() -> dict[str, Any]:
         return get_newsapi_event_risk_payload()
 
     raise ValueError(f"Unsupported EVENT_RISK_SOURCE: {source!r}")
+
+
+def _get_merge_sources() -> list[str]:
+    raw = os.environ.get("EVENT_RISK_MERGE_SOURCES", "").strip()
+    if not raw:
+        return ["guardian", "newsdata", "gnews", "newsapi"]
+
+    out: list[str] = []
+    for part in raw.split(","):
+        s = part.strip().lower()
+        if not s:
+            continue
+        if s not in out:
+            out.append(s)
+    return out
+
+
+def _load_event_risk_payload_from_source() -> dict[str, Any]:
+    source = _get_event_risk_source()
+
+    if source == "merge":
+        payloads: list[dict[str, Any]] = []
+        for merge_source in _get_merge_sources():
+            payloads.append(_load_single_source_event_risk_payload(merge_source))
+        return merge_event_risk_payloads(payloads)
+
+    return _load_single_source_event_risk_payload(source)
 
 
 def build_event_risk_payload() -> dict[str, Any]:

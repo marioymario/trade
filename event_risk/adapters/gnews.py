@@ -4,6 +4,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -165,6 +166,16 @@ def _gnews_error_payload(reason_code: str) -> dict[str, Any]:
     }
 
 
+def _map_gnews_http_error(code: int) -> str:
+    if code in (401, 403):
+        return "gnews_auth_error"
+    if code == 429:
+        return "gnews_rate_limited"
+    if 500 <= code <= 599:
+        return "gnews_upstream_error"
+    return "gnews_http_error"
+
+
 def get_gnews_event_risk_payload() -> dict[str, Any]:
     try:
         articles = _fetch_gnews_articles()
@@ -182,5 +193,11 @@ def get_gnews_event_risk_payload() -> dict[str, Any]:
         }
     except ValueError:
         return _gnews_error_payload("gnews_config_error")
+    except HTTPError as e:
+        return _gnews_error_payload(_map_gnews_http_error(int(getattr(e, "code", 0) or 0)))
+    except TimeoutError:
+        return _gnews_error_payload("gnews_timeout")
+    except URLError:
+        return _gnews_error_payload("gnews_network_error")
     except Exception:
         return _gnews_error_payload("gnews_fetch_error")

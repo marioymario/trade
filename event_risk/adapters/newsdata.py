@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -75,9 +76,7 @@ def _parse_newsdata_pub_date(value: str) -> datetime | None:
     if not s:
         return None
     try:
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        dt = datetime.fromisoformat(s)
+        dt = datetime.fromisoformat(s.replace(" ", "T"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc)
@@ -160,6 +159,16 @@ def _newsdata_error_payload(reason_code: str) -> dict[str, Any]:
     }
 
 
+def _map_newsdata_http_error(code: int) -> str:
+    if code in (401, 403):
+        return "newsdata_auth_error"
+    if code == 429:
+        return "newsdata_rate_limited"
+    if 500 <= code <= 599:
+        return "newsdata_upstream_error"
+    return "newsdata_http_error"
+
+
 def get_newsdata_event_risk_payload() -> dict[str, Any]:
     try:
         results = _fetch_newsdata_results()
@@ -177,5 +186,11 @@ def get_newsdata_event_risk_payload() -> dict[str, Any]:
         }
     except ValueError:
         return _newsdata_error_payload("newsdata_config_error")
+    except HTTPError as e:
+        return _newsdata_error_payload(_map_newsdata_http_error(int(getattr(e, "code", 0) or 0)))
+    except TimeoutError:
+        return _newsdata_error_payload("newsdata_timeout")
+    except URLError:
+        return _newsdata_error_payload("newsdata_network_error")
     except Exception:
         return _newsdata_error_payload("newsdata_fetch_error")
