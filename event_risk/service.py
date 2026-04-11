@@ -12,6 +12,7 @@ from event_risk.adapters.file_source import get_file_event_risk_payload
 from event_risk.adapters.gnews import get_gnews_event_risk_payload
 from event_risk.adapters.guardian import get_guardian_event_risk_payload
 from event_risk.adapters.mock import get_mock_event_risk_payload
+from event_risk.adapters.newsapi import get_newsapi_event_risk_payload
 from event_risk.adapters.newsdata import get_newsdata_event_risk_payload
 from event_risk.schema import validate_event_risk_payload
 from event_risk.writer import EVENT_RISK_HISTORY_FIELDS
@@ -39,6 +40,9 @@ def _load_event_risk_payload_from_source() -> dict[str, Any]:
 
     if source == "gnews":
         return get_gnews_event_risk_payload()
+
+    if source == "newsapi":
+        return get_newsapi_event_risk_payload()
 
     raise ValueError(f"Unsupported EVENT_RISK_SOURCE: {source!r}")
 
