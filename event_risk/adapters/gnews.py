@@ -155,6 +155,7 @@ def _classify_gnews_articles(articles: list[dict[str, Any]]) -> tuple[str, str, 
 
 def _gnews_error_payload(reason_code: str) -> dict[str, Any]:
     return {
+        "source_name": "gnews",
         "as_of_utc": datetime.now(timezone.utc).isoformat(),
         "status": "error",
         "event_risk_level": "normal",
@@ -182,6 +183,7 @@ def get_gnews_event_risk_payload() -> dict[str, Any]:
         level, regime, score, reason_codes, source_count = _classify_gnews_articles(articles)
 
         return {
+            "source_name": "gnews",
             "as_of_utc": datetime.now(timezone.utc).isoformat(),
             "status": "ok",
             "event_risk_level": level,

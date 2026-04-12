@@ -1,3 +1,4 @@
+## trade/event_risk/merge.py 
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -67,6 +68,48 @@ def _merged_status(payloads: list[dict[str, Any]]) -> str:
     return "error"
 
 
+def _normalize_source_name(value: Any, fallback_index: int) -> str:
+    s = str(value or "").strip().lower()
+    if s:
+        return s
+    return f"source_{fallback_index}"
+
+
+def _source_statuses(payloads: list[dict[str, Any]]) -> dict[str, str]:
+    out: dict[str, str] = {}
+
+    for i, payload in enumerate(payloads):
+        name = _normalize_source_name(payload.get("source_name"), i)
+        status = str(payload.get("status", "error")).strip().lower() or "error"
+        out[name] = status
+
+    return out
+
+
+def _ok_source_names(payloads: list[dict[str, Any]]) -> list[str]:
+    out: list[str] = []
+
+    for i, payload in enumerate(payloads):
+        status = str(payload.get("status", "")).strip().lower()
+        if status != "ok":
+            continue
+        out.append(_normalize_source_name(payload.get("source_name"), i))
+
+    return out
+
+
+def _error_source_names(payloads: list[dict[str, Any]]) -> list[str]:
+    out: list[str] = []
+
+    for i, payload in enumerate(payloads):
+        status = str(payload.get("status", "")).strip().lower()
+        if status == "ok":
+            continue
+        out.append(_normalize_source_name(payload.get("source_name"), i))
+
+    return out
+
+
 def merge_event_risk_payloads(payloads: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Merge already-normalized event-risk payloads into one final payload.
@@ -80,6 +123,11 @@ def merge_event_risk_payloads(payloads: list[dict[str, Any]]) -> dict[str, Any]:
     - reason_codes: stable union, first-seen order
     - source_count: sum of source_count from ok payloads only
     - as_of_utc: merge time in UTC
+
+    Added attribution fields:
+    - merged_sources_ok
+    - merged_sources_error
+    - merged_source_statuses
     """
     if not payloads:
         return {
@@ -91,6 +139,9 @@ def merge_event_risk_payloads(payloads: list[dict[str, Any]]) -> dict[str, Any]:
             "ttl_seconds": 3600,
             "reason_codes": ["merge_no_sources"],
             "source_count": 0,
+            "merged_sources_ok": [],
+            "merged_sources_error": [],
+            "merged_source_statuses": {},
         }
 
     ok_payloads = [p for p in payloads if str(p.get("status", "")).strip().lower() == "ok"]
@@ -110,6 +161,9 @@ def merge_event_risk_payloads(payloads: list[dict[str, Any]]) -> dict[str, Any]:
         "ttl_seconds": min(ttls) if ttls else 3600,
         "reason_codes": _merge_reason_codes(merge_base),
         "source_count": sum(_safe_int(p.get("source_count", 0), 0) for p in ok_payloads),
+        "merged_sources_ok": _ok_source_names(payloads),
+        "merged_sources_error": _error_source_names(payloads),
+        "merged_source_statuses": _source_statuses(payloads),
     }
 
     if merged["status"] != "ok" and not merged["reason_codes"]:

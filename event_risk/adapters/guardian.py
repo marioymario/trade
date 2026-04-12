@@ -150,6 +150,7 @@ def _classify_guardian_results(results: list[dict[str, Any]]) -> tuple[str, str,
 
 def _guardian_error_payload(reason_code: str) -> dict[str, Any]:
     return {
+        "source_name": "guardian",
         "as_of_utc": datetime.now(timezone.utc).isoformat(),
         "status": "error",
         "event_risk_level": "normal",
@@ -177,6 +178,7 @@ def get_guardian_event_risk_payload() -> dict[str, Any]:
         level, regime, score, reason_codes, source_count = _classify_guardian_results(results)
 
         return {
+            "source_name": "guardian",
             "as_of_utc": datetime.now(timezone.utc).isoformat(),
             "status": "ok",
             "event_risk_level": level,
