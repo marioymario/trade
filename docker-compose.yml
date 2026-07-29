@@ -43,6 +43,7 @@ services:
     working_dir: /work
     command: >
       jupyter lab --ip=0.0.0.0 --no-browser
+      --ServerApp.root_dir=/work
       --NotebookApp.token=''
       --NotebookApp.password=''
 

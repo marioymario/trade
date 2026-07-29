@@ -6,7 +6,7 @@ from files.models.entry_model import EntryModel
 
 _model = EntryModel()
 
-CONFIDENCE_ENTER = 0.60  # start conservative
+CONFIDENCE_ENTER = 0.75  # fixed threshold for scorer-v2 evaluation
 
 # Side enable flags (Mission 5B.1 quarantine)
 ENABLE_LONG: bool = True

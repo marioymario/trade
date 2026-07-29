@@ -14,3 +14,4 @@ ccxt==4.4.69
 yfinance==0.2.54
 pyarrow==17.0.0
 
+optuna==4.9.0
