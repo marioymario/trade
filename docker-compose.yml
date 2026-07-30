@@ -38,6 +38,7 @@ services:
     volumes:
       - ./notebooks:/work/notebooks
       - ./files:/work/files
+      - ./ops:/work/ops
       - ./data:/work/data
       - /home/kk7wus/trade_flags:/home/kk7wus/trade_flags
     working_dir: /work
