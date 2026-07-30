@@ -76,6 +76,7 @@ class HistoricalBackfillResult:
     bars: pd.DataFrame
     pages_fetched: int
     raw_rows_received: int
+    out_of_window_rows_filtered: int
     duplicate_rows_removed: int
     expected_rows: int
 
@@ -451,6 +452,7 @@ def fetch_historical_ohlcv(
     previous_raw_last_ms: Optional[int] = None
     pages_fetched = 0
     raw_rows_received = 0
+    in_window_rows_received = 0
 
     while next_since_ms < end_ms_exclusive:
         pages_fetched += 1
@@ -503,6 +505,8 @@ def fetch_historical_ohlcv(
             end_ms_exclusive=end_ms_exclusive,
         )
 
+        in_window_rows_received += len(normalized_page)
+
         for row in normalized_page:
             rows_by_timestamp[int(row[0])] = row
 
@@ -534,8 +538,13 @@ def fetch_historical_ohlcv(
         request=request,
     )
 
-    duplicate_rows_removed = (
+    out_of_window_rows_filtered = (
         raw_rows_received
+        - in_window_rows_received
+    )
+
+    duplicate_rows_removed = (
+        in_window_rows_received
         - len(rows_by_timestamp)
     )
 
@@ -544,6 +553,10 @@ def fetch_historical_ohlcv(
         bars=frame,
         pages_fetched=pages_fetched,
         raw_rows_received=raw_rows_received,
+        out_of_window_rows_filtered=max(
+            0,
+            out_of_window_rows_filtered,
+        ),
         duplicate_rows_removed=max(
             0,
             duplicate_rows_removed,

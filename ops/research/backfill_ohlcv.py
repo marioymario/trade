@@ -210,6 +210,9 @@ def main() -> None:
         ),
         "pages_fetched": result.pages_fetched,
         "raw_rows_received": result.raw_rows_received,
+        "out_of_window_rows_filtered": (
+            result.out_of_window_rows_filtered
+        ),
         "duplicate_rows_removed": result.duplicate_rows_removed,
         "expected_rows": result.expected_rows,
         "validated_rows": result.row_count,
