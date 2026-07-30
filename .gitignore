@@ -22,8 +22,8 @@ conda-meta/
 trade_flags/
 ops/logs/
 
-# Data (ignore live/big; repo code can still live elsewhere)
-data/
+# Data (ignore top-level live/big runtime data only)
+/data/
 
 # OS
 .DS_Store
