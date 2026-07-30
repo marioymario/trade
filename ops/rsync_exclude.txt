@@ -1,10 +1,9 @@
 # Runtime-only / operator-owned (MUST NOT SHIP)
 .env
-data/
+/data/
 trade_flags/
 **/trade_flags/
 **/status.txt
-!files/data/paths.py
 
 # Python / build junk
 __pycache__/
