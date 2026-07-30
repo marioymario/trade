@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Any, Callable, Iterable, Optional
 
 import pandas as pd
@@ -398,6 +399,65 @@ def validate_complete_history(
     return expected_rows
 
 
+def fetch_ohlcv_page_with_retries(
+    *,
+    exchange: Any,
+    symbol: str,
+    timeframe: str,
+    since_ms: int,
+    page_limit: int,
+    max_attempts: int = 5,
+    initial_backoff_seconds: float = 2.0,
+) -> list[list[Any]]:
+    if max_attempts <= 0:
+        raise ValueError("max_attempts must be greater than zero")
+
+    if initial_backoff_seconds < 0:
+        raise ValueError(
+            "initial_backoff_seconds must not be negative"
+        )
+
+    last_error: Exception | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return exchange.fetch_ohlcv(
+                symbol,
+                timeframe=timeframe,
+                since=since_ms,
+                limit=page_limit,
+            )
+        except Exception as exc:
+            last_error = exc
+
+            if attempt >= max_attempts:
+                break
+
+            delay_seconds = initial_backoff_seconds * (
+                2 ** (attempt - 1)
+            )
+
+            logger.warning(
+                "Historical OHLCV page fetch failed; retrying",
+                extra={
+                    "attempt": attempt,
+                    "max_attempts": max_attempts,
+                    "since_ms": since_ms,
+                    "delay_seconds": delay_seconds,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+
+            time.sleep(delay_seconds)
+
+    raise HistoricalBackfillError(
+        "Historical OHLCV page fetch failed after "
+        f"{max_attempts} attempts for since_ms={since_ms}: "
+        f"{last_error}"
+    ) from last_error
+
+
 def fetch_historical_ohlcv(
     *,
     request: HistoricalBackfillRequest,
@@ -405,6 +465,8 @@ def fetch_historical_ohlcv(
     progress_callback: Optional[
         Callable[[dict[str, Any]], None]
     ] = None,
+    max_page_attempts: int = 5,
+    initial_backoff_seconds: float = 2.0,
 ) -> HistoricalBackfillResult:
     exchange = exchange or build_ccxt_exchange(
         request.ccxt_exchange
@@ -457,11 +519,14 @@ def fetch_historical_ohlcv(
     while next_since_ms < end_ms_exclusive:
         pages_fetched += 1
 
-        raw_page = exchange.fetch_ohlcv(
-            request.symbol,
+        raw_page = fetch_ohlcv_page_with_retries(
+            exchange=exchange,
+            symbol=request.symbol,
             timeframe=request.timeframe,
-            since=next_since_ms,
-            limit=request.page_limit,
+            since_ms=next_since_ms,
+            page_limit=request.page_limit,
+            max_attempts=max_page_attempts,
+            initial_backoff_seconds=initial_backoff_seconds,
         )
 
         if not raw_page:
