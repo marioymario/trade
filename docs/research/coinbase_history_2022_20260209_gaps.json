@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "status": "confirmed",
+  "source_exchange": "coinbase",
+  "symbol": "BTC/USD",
+  "timeframe": "5m",
+  "data_tag": "coinbase_history_2022_20260209",
+  "dataset_start_utc": "2022-01-01T00:00:00Z",
+  "dataset_end_utc_exclusive": "2026-02-09T00:00:00Z",
+  "theoretical_bar_count": 432000,
+  "stored_bar_count": 431842,
+  "missing_bar_count": 158,
+  "duplicate_timestamp_count": 0,
+  "partition_count": 1500,
+  "verification": {
+    "five_minute_feed_checked": true,
+    "one_minute_feed_checked": true,
+    "synthetic_bars_created": false,
+    "cross_exchange_substitution_used": false
+  },
+  "gaps": [
+    {
+      "gap_id": "coinbase_btcusd_5m_gap_001",
+      "start_utc": "2022-08-12T11:25:00Z",
+      "end_utc_exclusive": "2022-08-12T11:30:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_btcusd_5m_gap_002",
+      "start_utc": "2023-03-04T17:00:00Z",
+      "end_utc_exclusive": "2023-03-04T21:35:00Z",
+      "missing_5m_bars": 55,
+      "missing_1m_bars": 275,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_btcusd_5m_gap_003",
+      "start_utc": "2023-05-19T07:45:00Z",
+      "end_utc_exclusive": "2023-05-19T08:25:00Z",
+      "missing_5m_bars": 8,
+      "missing_1m_bars": 40,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_btcusd_5m_gap_004",
+      "start_utc": "2024-05-31T22:20:00Z",
+      "end_utc_exclusive": "2024-05-31T23:15:00Z",
+      "missing_5m_bars": 11,
+      "missing_1m_bars": 55,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_btcusd_5m_gap_005",
+      "start_utc": "2024-10-26T16:10:00Z",
+      "end_utc_exclusive": "2024-10-26T17:15:00Z",
+      "missing_5m_bars": 13,
+      "missing_1m_bars": 65,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_btcusd_5m_gap_006",
+      "start_utc": "2025-10-25T14:55:00Z",
+      "end_utc_exclusive": "2025-10-25T15:00:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_btcusd_5m_gap_007",
+      "start_utc": "2025-10-25T15:15:00Z",
+      "end_utc_exclusive": "2025-10-25T21:00:00Z",
+      "missing_5m_bars": 69,
+      "missing_1m_bars": 345,
+      "classification": "confirmed_source_outage"
+    }
+  ]
+}
