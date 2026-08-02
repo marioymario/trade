@@ -11,20 +11,37 @@ from files.research.scorer_walk_forward import (
 def main() -> None:
     trading_config = load_trading_config()
 
-    resolved, data_min, data_max, bar_count = (
-        resolve_walk_forward_splits(
-            trading_config=trading_config,
-        )
+    resolved, source = resolve_walk_forward_splits(
+        trading_config=trading_config,
     )
 
     payload = {
-        "data": {
-            "data_tag": trading_config.data_tag,
-            "symbol": trading_config.symbol,
-            "timeframe": trading_config.timeframe,
-            "bar_count": bar_count,
-            "minimum_timestamp": data_min.isoformat(),
-            "maximum_timestamp": data_max.isoformat(),
+        "source": {
+            "data_tag": source.data_tag,
+            "symbol": source.symbol,
+            "timeframe": source.timeframe,
+            "timeframe_step_ms": source.timeframe_step_ms,
+            "stored_bar_count": source.stored_bar_count,
+            "gap_count": source.gap_count,
+            "physical_segment_count": (
+                source.physical_segment_count
+            ),
+            "dataset_start_ts_ms": (
+                source.dataset_start_ts_ms
+            ),
+            "dataset_end_ts_ms_exclusive": (
+                source.dataset_end_ts_ms_exclusive
+            ),
+            "first_available_ts_ms": (
+                source.first_available_ts_ms
+            ),
+            "last_available_ts_ms": (
+                source.last_available_ts_ms
+            ),
+            "manifest_path": str(source.manifest_path),
+            "manifest_fingerprint": (
+                source.manifest_fingerprint
+            ),
         },
         "walk_forward_splits": [
             split.as_dict()

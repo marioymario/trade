@@ -38,18 +38,28 @@ class WalkForwardSplit:
     name: str
 
     train_start: str
-    train_end: str
+    train_end_exclusive: str
 
     validation_start: str
-    validation_end: str
+    validation_end_exclusive: str
 
 
 FIXED_SETTINGS = FixedStrategySettings()
 SEARCH_CONTROLS = SearchControls()
 
-# Frozen dataset cutoff for this research campaign.
-# New live bars after this timestamp are intentionally excluded.
-RESEARCH_DATA_MAX_TIMESTAMP = "2026-07-18T19:30:00+00:00"
+MANIFEST_BACKED_SOURCE_CONTRACT = "manifest_backed_v1"
+LEGACY_FROZEN_SOURCE_CONTRACT = "legacy_frozen_2026_v1"
+
+SOURCE_CONTRACT = MANIFEST_BACKED_SOURCE_CONTRACT
+
+FINAL_OUT_OF_SAMPLE_START = "2025-01-01T00:00:00+00:00"
+FINAL_OUT_OF_SAMPLE_END_EXCLUSIVE = (
+    "2026-02-09T00:00:00+00:00"
+)
+
+LEGACY_FROZEN_RESEARCH_DATA_MAX_TIMESTAMP = (
+    "2026-07-18T19:30:00+00:00"
+)
 
 
 PARAMETER_RANGES: dict[str, RangeSpec] = {
@@ -173,26 +183,51 @@ PARAMETER_CONSTRAINTS: tuple[str, ...] = (
 
 WALK_FORWARD_SPLITS: tuple[WalkForwardSplit, ...] = (
     WalkForwardSplit(
-        name="march_april_to_may",
-        train_start="2026-03-01T00:00:00+00:00",
-        train_end="2026-04-30T23:59:59.999000+00:00",
-        validation_start="2026-05-01T00:00:00+00:00",
-        validation_end="2026-05-31T23:59:59.999000+00:00",
+        name="train_2022_validate_h1_2023",
+        train_start="2022-01-01T00:00:00+00:00",
+        train_end_exclusive="2023-01-01T00:00:00+00:00",
+        validation_start="2023-01-01T00:00:00+00:00",
+        validation_end_exclusive="2023-07-01T00:00:00+00:00",
     ),
     WalkForwardSplit(
-        name="march_may_to_june",
-        train_start="2026-03-01T00:00:00+00:00",
-        train_end="2026-05-31T23:59:59.999000+00:00",
-        validation_start="2026-06-01T00:00:00+00:00",
-        validation_end="2026-06-30T23:59:59.999000+00:00",
+        name="train_to_h1_2023_validate_h2_2023",
+        train_start="2022-01-01T00:00:00+00:00",
+        train_end_exclusive="2023-07-01T00:00:00+00:00",
+        validation_start="2023-07-01T00:00:00+00:00",
+        validation_end_exclusive="2024-01-01T00:00:00+00:00",
     ),
     WalkForwardSplit(
-        name="march_june_to_july",
-        train_start="2026-03-01T00:00:00+00:00",
-        train_end="2026-06-30T23:59:59.999000+00:00",
-        validation_start="2026-07-01T00:00:00+00:00",
-        validation_end="DATA_MAX_TIMESTAMP",
+        name="train_to_2024_validate_2024",
+        train_start="2022-01-01T00:00:00+00:00",
+        train_end_exclusive="2024-01-01T00:00:00+00:00",
+        validation_start="2024-01-01T00:00:00+00:00",
+        validation_end_exclusive="2025-01-01T00:00:00+00:00",
     ),
+)
+
+
+LEGACY_FROZEN_WALK_FORWARD_SPLITS: tuple[dict[str, str], ...] = (
+    {
+        "name": "march_april_to_may",
+        "train_start": "2026-03-01T00:00:00+00:00",
+        "train_end": "2026-04-30T23:59:59.999000+00:00",
+        "validation_start": "2026-05-01T00:00:00+00:00",
+        "validation_end": "2026-05-31T23:59:59.999000+00:00",
+    },
+    {
+        "name": "march_may_to_june",
+        "train_start": "2026-03-01T00:00:00+00:00",
+        "train_end": "2026-05-31T23:59:59.999000+00:00",
+        "validation_start": "2026-06-01T00:00:00+00:00",
+        "validation_end": "2026-06-30T23:59:59.999000+00:00",
+    },
+    {
+        "name": "march_june_to_july",
+        "train_start": "2026-03-01T00:00:00+00:00",
+        "train_end": "2026-06-30T23:59:59.999000+00:00",
+        "validation_start": "2026-07-01T00:00:00+00:00",
+        "validation_end": "DATA_MAX_TIMESTAMP",
+    },
 )
 
 
@@ -224,7 +259,21 @@ def contract_as_dict() -> dict[str, Any]:
     return {
         "fixed_settings": asdict(FIXED_SETTINGS),
         "search_controls": asdict(SEARCH_CONTROLS),
-        "research_data_max_timestamp": RESEARCH_DATA_MAX_TIMESTAMP,
+        "source_contract": SOURCE_CONTRACT,
+        "final_out_of_sample": {
+            "start": FINAL_OUT_OF_SAMPLE_START,
+            "end_exclusive": FINAL_OUT_OF_SAMPLE_END_EXCLUSIVE,
+        },
+        "legacy_frozen_campaign": {
+            "source_contract": LEGACY_FROZEN_SOURCE_CONTRACT,
+            "research_data_max_timestamp": (
+                LEGACY_FROZEN_RESEARCH_DATA_MAX_TIMESTAMP
+            ),
+            "walk_forward_splits": [
+                dict(split)
+                for split in LEGACY_FROZEN_WALK_FORWARD_SPLITS
+            ],
+        },
         "parameter_ranges": {
             name: asdict(spec)
             for name, spec in PARAMETER_RANGES.items()

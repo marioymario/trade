@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -1118,6 +1119,37 @@ class HistoricalResearchDataset:
         )
 
 
+def _validate_research_boundaries_outside_gaps(
+    *,
+    manifest: HistoricalDatasetManifest,
+    requested_start_ms: int,
+    requested_end_exclusive_ms: int,
+) -> None:
+    for gap in manifest.gaps:
+        if (
+            gap.start_ts_ms
+            <= requested_start_ms
+            < gap.end_ts_ms_exclusive
+        ):
+            raise HistoricalDatasetContractError(
+                "Requested start lies inside a confirmed gap: "
+                f"gap_id={gap.gap_id} "
+                f"requested_start_ms={requested_start_ms}"
+            )
+
+        if (
+            gap.start_ts_ms
+            < requested_end_exclusive_ms
+            < gap.end_ts_ms_exclusive
+        ):
+            raise HistoricalDatasetContractError(
+                "Requested end-exclusive lies inside a confirmed gap: "
+                f"gap_id={gap.gap_id} "
+                f"requested_end_exclusive_ms="
+                f"{requested_end_exclusive_ms}"
+            )
+
+
 def normalize_research_range(
     *,
     audit: HistoricalDatasetAudit,
@@ -1205,11 +1237,23 @@ def normalize_research_range(
             "dataset timeframe grid."
         )
 
+    requested_end_exclusive_ms = (
+        requested_end_ms + step_ms
+    )
+
+    _validate_research_boundaries_outside_gaps(
+        manifest=audit.manifest,
+        requested_start_ms=requested_start_ms,
+        requested_end_exclusive_ms=(
+            requested_end_exclusive_ms
+        ),
+    )
+
     return HistoricalResearchRange(
         requested_start_ts_ms=requested_start_ms,
         requested_end_ts_ms=requested_end_ms,
         requested_end_ts_ms_exclusive=(
-            requested_end_ms + step_ms
+            requested_end_exclusive_ms
         ),
     )
 
@@ -1276,6 +1320,155 @@ def build_physical_segments(
         )
 
     return tuple(segments)
+
+
+@dataclass(frozen=True)
+class HistoricalResearchSource:
+    audit: HistoricalDatasetAudit
+    manifest_fingerprint: str
+
+    @property
+    def data_tag(self) -> str:
+        return self.audit.manifest.data_tag
+
+    @property
+    def symbol(self) -> str:
+        return self.audit.manifest.symbol
+
+    @property
+    def timeframe(self) -> str:
+        return self.audit.manifest.timeframe
+
+    @property
+    def timeframe_step_ms(self) -> int:
+        return int(
+            timeframe_to_timedelta(
+                self.timeframe
+            ).total_seconds()
+            * 1000
+        )
+
+    @property
+    def dataset_start_ts_ms(self) -> int:
+        return self.audit.manifest.dataset_start_ts_ms
+
+    @property
+    def dataset_end_ts_ms_exclusive(self) -> int:
+        return (
+            self.audit.manifest.dataset_end_ts_ms_exclusive
+        )
+
+    @property
+    def first_available_ts_ms(self) -> int:
+        return timestamp_to_milliseconds(
+            self.audit.first_timestamp
+        )
+
+    @property
+    def last_available_ts_ms(self) -> int:
+        return timestamp_to_milliseconds(
+            self.audit.last_timestamp
+        )
+
+    @property
+    def stored_bar_count(self) -> int:
+        return self.audit.stored_bar_count
+
+    @property
+    def gap_count(self) -> int:
+        return len(self.audit.manifest.gaps)
+
+    @property
+    def physical_segments(
+        self,
+    ) -> tuple[HistoricalPhysicalSegment, ...]:
+        return build_physical_segments(
+            manifest=self.audit.manifest
+        )
+
+    @property
+    def physical_segment_count(self) -> int:
+        return len(self.physical_segments)
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.audit.manifest.source_path
+
+
+def _historical_manifest_fingerprint(
+    *,
+    manifest: HistoricalDatasetManifest,
+) -> str:
+    try:
+        manifest_bytes = manifest.source_path.read_bytes()
+    except OSError as exc:
+        raise HistoricalDatasetContractError(
+            "Unable to read historical manifest for fingerprinting: "
+            f"{manifest.source_path}"
+        ) from exc
+
+    identity = {
+        "data_tag": manifest.data_tag,
+        "symbol": manifest.symbol,
+        "timeframe": manifest.timeframe,
+        "dataset_start_utc": (
+            manifest.dataset_start_utc.isoformat()
+        ),
+        "dataset_end_utc_exclusive": (
+            manifest.dataset_end_utc_exclusive.isoformat()
+        ),
+        "stored_bar_count": manifest.stored_bar_count,
+        "gaps": [
+            {
+                "gap_id": gap.gap_id,
+                "start_utc": gap.start_utc.isoformat(),
+                "end_utc_exclusive": (
+                    gap.end_utc_exclusive.isoformat()
+                ),
+                "missing_bar_count": gap.missing_bar_count,
+                "classification": gap.classification,
+            }
+            for gap in manifest.gaps
+        ],
+    }
+
+    canonical_identity = json.dumps(
+        identity,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+
+    digest = hashlib.sha256()
+    digest.update(manifest_bytes)
+    digest.update(b"\n")
+    digest.update(canonical_identity)
+
+    return digest.hexdigest()
+
+
+def load_and_resolve_historical_research_source(
+    *,
+    data_tag: str,
+    expected_symbol: str,
+    expected_timeframe: str,
+    manifest_path: Path | None = None,
+) -> HistoricalResearchSource:
+    audit = load_and_audit_historical_dataset(
+        data_tag=data_tag,
+        expected_symbol=expected_symbol,
+        expected_timeframe=expected_timeframe,
+        manifest_path=manifest_path,
+    )
+
+    return HistoricalResearchSource(
+        audit=audit,
+        manifest_fingerprint=(
+            _historical_manifest_fingerprint(
+                manifest=audit.manifest
+            )
+        ),
+    )
 
 
 def build_historical_research_dataset(
