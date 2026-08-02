@@ -9,12 +9,38 @@ from typing import Optional
 
 import pandas as pd
 
+from files.backtest.replay import (
+    ReplayPlan,
+    ReplaySegment,
+    build_legacy_replay_plan,
+    build_research_replay_plan,
+)
+from files.backtest.segment_executor import (
+    SegmentBoundaryPolicy,
+    SegmentExecutionRequest,
+    SegmentWriterContext,
+    execute_backtest_segment,
+)
 from files.broker.paper import PaperBroker
 from files.config import TradingConfig, load_trading_config
 from files.data.decisions import append_decision_csv, decisions_csv_path
 from files.data.features import compute_features, validate_latest_features
-from files.data.paths import raw_symbol_dir, trades_csv_path
+from files.data.paths import (
+    historical_gap_manifest_path,
+    raw_symbol_dir,
+    trades_csv_path,
+)
 from files.data.trades import append_trade_csv
+from files.research.execution_events import (
+    ResearchExecutionEvent,
+    ResearchExecutionEventWriter,
+)
+from files.research.historical_dataset import (
+    PHYSICAL_DATASET_END,
+    PHYSICAL_GAP_BOUNDARY,
+    build_historical_research_dataset,
+    load_and_audit_historical_dataset,
+)
 from files.strategy.filters import determine_market_state
 from files.strategy.rules import (
     ATR_MULT,
@@ -38,6 +64,7 @@ class BacktestResult:
     bars_processed: int
     decisions_csv: str
     trades_csv: str
+    research_execution_events_csv: str
 
 
 def _timeframe_to_seconds(timeframe: str) -> int:
@@ -148,6 +175,134 @@ def _load_all_ohlcv_parquet(*, exchange: str, symbol: str, timeframe: str) -> pd
     return out
 
 
+
+def _resolve_backtest_replay_plan(
+    *,
+    cfg: TradingConfig,
+    storage_symbol: str,
+    start_ts_ms: int | None,
+    end_ts_ms: int | None,
+) -> ReplayPlan:
+    """
+    Resolve the authoritative replay plan for a backtest run.
+
+    Ownership:
+    - engine selects and loads the data source
+    - historical_dataset validates manifest-backed data
+    - replay transforms already-resolved data into execution units
+    """
+    warmup_bars = max(int(cfg.min_bars), 50) + 5
+
+    manifest_path = historical_gap_manifest_path(
+        data_tag=cfg.data_tag,
+    )
+
+    if manifest_path.is_file():
+        audit = load_and_audit_historical_dataset(
+            data_tag=cfg.data_tag,
+            expected_symbol=cfg.symbol,
+            expected_timeframe=cfg.timeframe,
+            manifest_path=manifest_path,
+        )
+
+        dataset = build_historical_research_dataset(
+            audit=audit,
+            start_ts_ms=start_ts_ms,
+            end_ts_ms=end_ts_ms,
+            warmup_bars=warmup_bars,
+        )
+
+        return build_research_replay_plan(
+            dataset=dataset,
+        )
+
+    source_bars = _load_all_ohlcv_parquet(
+        exchange=cfg.data_tag,
+        symbol=storage_symbol,
+        timeframe=cfg.timeframe,
+    )
+
+    if len(source_bars) == 0:
+        raise RuntimeError(
+            f"No bars found under "
+            f"data/raw/{cfg.data_tag}/"
+            f"{storage_symbol}/{cfg.timeframe} "
+            f"(DATA_TAG={cfg.data_tag}, "
+            f"CCXT_EXCHANGE={cfg.ccxt_exchange})"
+        )
+
+    return build_legacy_replay_plan(
+        bars=source_bars,
+        start_ts_ms=start_ts_ms,
+        end_ts_ms=end_ts_ms,
+        warmup_bars=warmup_bars,
+    )
+
+
+def _build_research_segment_boundary_policy(
+    *,
+    segment: ReplaySegment,
+) -> SegmentBoundaryPolicy:
+    """
+    Classify why a manifest-backed research segment ends.
+
+    The engine owns this run-level policy decision. The segment executor
+    receives only the resolved policy and does not inspect manifests.
+
+    Priority:
+    1. An applied requested end terminates the requested run range.
+    2. A physical gap boundary requires the broker to finish flat.
+    3. A physical dataset end may expose unresolved final state.
+    """
+    if segment.requested_end_applied:
+        return SegmentBoundaryPolicy(
+            boundary_type="requested_range_end",
+            following_gap_id=None,
+            allow_next_bar_entry=False,
+            force_flat_at_end=False,
+            unresolved_position_allowed=True,
+        )
+
+    if (
+        segment.physical_end_boundary_type
+        == PHYSICAL_GAP_BOUNDARY
+    ):
+        if not segment.following_gap_id:
+            raise RuntimeError(
+                "Gap-boundary replay segment is missing "
+                "following_gap_id: "
+                f"segment_id={segment.segment_id!r}"
+            )
+
+        return SegmentBoundaryPolicy(
+            boundary_type="gap_boundary",
+            following_gap_id=segment.following_gap_id,
+            allow_next_bar_entry=False,
+            force_flat_at_end=True,
+            unresolved_position_allowed=False,
+        )
+
+    if (
+        segment.physical_end_boundary_type
+        == PHYSICAL_DATASET_END
+    ):
+        return SegmentBoundaryPolicy(
+            boundary_type="dataset_end",
+            following_gap_id=None,
+            allow_next_bar_entry=False,
+            force_flat_at_end=False,
+            unresolved_position_allowed=True,
+        )
+
+    raise RuntimeError(
+        "Unsupported research segment end boundary: "
+        f"segment_id={segment.segment_id!r} "
+        "physical_end_boundary_type="
+        f"{segment.physical_end_boundary_type!r} "
+        "requested_end_applied="
+        f"{segment.requested_end_applied!r}"
+    )
+
 def run_backtest(
     *,
     runid: str,
@@ -203,38 +358,16 @@ def run_backtest(
         slippage_bps=getattr(cfg, "slippage_bps", 0.0),
     )
 
-    # IMPORTANT: read raw bars from DATA_TAG storage namespace, using STORAGE SYMBOL
-    all_bars = _load_all_ohlcv_parquet(exchange=data_tag, symbol=storage_symbol, timeframe=cfg.timeframe)
-
-    if len(all_bars) == 0:
-        raise RuntimeError(
-            f"No bars found under data/raw/{data_tag}/{storage_symbol}/{cfg.timeframe} "
-            f"(DATA_TAG={data_tag}, CCXT_EXCHANGE={cfg.ccxt_exchange})"
-        )
-
-    ts_ms_all = (all_bars["timestamp"].astype("int64") // 1_000_000).astype("int64")
-
-    # If trade_start_ts_ms is set, include a warmup prefix before it, but do not trade until >= trade_start_ts_ms.
-    if trade_start_ts_ms is not None:
-        idxs = all_bars.index[ts_ms_all >= int(trade_start_ts_ms)].tolist()
-        if not idxs:
-            raise RuntimeError(f"START_TS_MS={trade_start_ts_ms} is after the newest bar in raw data.")
-        first_trade_i = int(idxs[0])
-
-        # Warmup: include enough history to compute features at trade start.
-        warmup_bars = max(int(cfg.min_bars), 50) + 5
-        start_i0 = max(0, first_trade_i - warmup_bars)
-        all_bars = all_bars.iloc[start_i0:].reset_index(drop=True)
-        ts_ms_all = (all_bars["timestamp"].astype("int64") // 1_000_000).astype("int64")
-
-    # Apply end filter after warmup expansion (so we keep warmup, but can still cap the replay window).
-    if end_ts_ms is not None:
-        mask_end = ts_ms_all <= int(end_ts_ms)
-        all_bars = all_bars.loc[mask_end].reset_index(drop=True)
-        ts_ms_all = (all_bars["timestamp"].astype("int64") // 1_000_000).astype("int64")
-
-    if len(all_bars) == 0:
-        raise RuntimeError("No bars left after applying filters.")
+    replay_plan = _resolve_backtest_replay_plan(
+        cfg=cfg,
+        storage_symbol=storage_symbol,
+        start_ts_ms=trade_start_ts_ms,
+        end_ts_ms=(
+            int(end_ts_ms)
+            if end_ts_ms is not None
+            else None
+        ),
+    )
 
     # Restart-safe decision dedupe for bt output namespace
     dpath_existing = decisions_csv_path(exchange=bt_exchange, symbol=storage_symbol, timeframe=cfg.timeframe)
@@ -269,246 +402,223 @@ def run_backtest(
         last_decision_ts_ms = ts_ms
         return dpath
 
-    tail_n = max(cfg.min_bars, 200)
-
     bars_processed = 0
-    last_decisions_path: str = ""
-    last_trades_path: str = ""
+    last_decisions_path = ""
+    last_trades_path = ""
 
-    for i in range(len(all_bars)):
-        start_i = max(0, i - tail_n + 1)
-        market_data = all_bars.iloc[start_i : i + 1].reset_index(drop=True)
+    cancelled_entry_count = 0
+    forced_exit_count = 0
 
-        if len(market_data) < cfg.min_bars:
-            continue
-
-        feats = compute_features(market_data)
-
-        try:
-            validate_latest_features(feats)
-        except Exception:
-            continue
-
-        market_state = determine_market_state(
-            feats,
+    research_event_writer = (
+        ResearchExecutionEventWriter(
+            exchange=bt_exchange,
+            symbol=storage_symbol,
             timeframe=cfg.timeframe,
-            min_bars=cfg.min_bars,
+            run_id=runid,
+        )
+        if replay_plan.gap_aware
+        else None
+    )
+    research_event_sequence = 0
+    research_execution_events_path = ""
+
+    for segment_index, replay_segment in enumerate(
+        replay_plan.segments
+    ):
+        is_final_segment = (
+            segment_index
+            == len(replay_plan.segments) - 1
         )
 
-        latest_row = feats.iloc[-1]
-        latest_close = float(latest_row["close"])
-        latest_high = float(latest_row.get("high", latest_close))
-        latest_low = float(latest_row.get("low", latest_close))
-        latest_atr = float(latest_row["atr"])
-
-        ts = latest_row.get("timestamp", None)
-        now_ts_ms = int(getattr(ts, "value", 0) // 1_000_000) if ts is not None else 0
-        now_iso = ts.isoformat() if hasattr(ts, "isoformat") else ""
-
-        # If configured, hold broker flat until trade_start_ts_ms.
-        allow_trading = True
-        if trade_start_ts_ms is not None and now_ts_ms > 0 and int(now_ts_ms) < int(trade_start_ts_ms):
-            allow_trading = False
-
-        position = broker.get_tracked_position(
-            symbol=ccxt_symbol,
-            latest_close=latest_close,
-            latest_atr=latest_atr,
-            atr_mult=float(ATR_MULT),
-        )
-
-        decision_row = {
-            "ts_ms": now_ts_ms,
-            "timestamp": now_iso,
-            "bar_high": latest_high,
-            "bar_low": latest_low,
-            "tradable": bool(market_state.tradable),
-            "trend": market_state.trend,
-            "volatility": market_state.volatility,
-            "market_reason": market_state.reason,
-            "cooldown_remaining_bars": "",
-            "position_side": "",
-            "position_qty": "",
-            "position_entry_price": "",
-            "position_stop_price": "",
-            "position_trailing_anchor_price": "",
-            "unrealized_pnl_usd": "",
-            "unrealized_pnl_pct": "",
-            "trail_reason": "",
-            "trail_new_stop": "",
-            "trail_new_anchor": "",
-            "entry_should_enter": "",
-            "entry_side": "",
-            "entry_confidence": "",
-            "entry_reason": "",
-            "exit_should_exit": "",
-            "exit_reason": "",
-        }
-
-        # If we're not allowed to trade yet, we force a flat snapshot and write the row.
-        if not allow_trading:
-            _fill_position_fields(decision_row, None)
-            p = _write_decision_once_per_bar(decision_row)
-            if p:
-                last_decisions_path = p
-            bars_processed += 1
-            continue
-
-        # ---- Pending-entry guard (must match LIVE) ----
-        pending_entry = False
-        if (
-            position is not None
-            and position.entry_ts_ms is not None
-            and now_ts_ms > 0
-            and int(now_ts_ms) < int(position.entry_ts_ms)
-        ):
-            pending_entry = True
-
-        _fill_position_fields(decision_row, position)
-
-        if pending_entry:
-            p = _write_decision_once_per_bar(decision_row)
-            if p:
-                last_decisions_path = p
-            bars_processed += 1
-            continue
-
-        # ------------------------
-        # EXIT / MANAGE POSITION
-        # ------------------------
-        if position is not None:
-            u_usd, u_pct = broker.get_unrealized_pnl(symbol=ccxt_symbol, last_price=latest_close)
-            decision_row["unrealized_pnl_usd"] = float(u_usd)
-            decision_row["unrealized_pnl_pct"] = float(u_pct)
-
-            new_stop, new_anchor, trail_reason = compute_trailing_stop_update(
-                position=position,
-                latest_close=latest_close,
-                latest_high=latest_high,
-                latest_low=latest_low,
-                atr=latest_atr,
+        if replay_plan.gap_aware:
+            boundary_policy = (
+                _build_research_segment_boundary_policy(
+                    segment=replay_segment,
+                )
+            )
+        else:
+            boundary_policy = SegmentBoundaryPolicy(
+                boundary_type=(
+                    replay_segment
+                    .physical_end_boundary_type
+                ),
+                following_gap_id=(
+                    replay_segment.following_gap_id
+                ),
+                allow_next_bar_entry=True,
+                force_flat_at_end=False,
+                unresolved_position_allowed=True,
             )
 
-            decision_row["trail_reason"] = trail_reason
-            decision_row["trail_new_stop"] = float(new_stop) if new_stop is not None else ""
-            decision_row["trail_new_anchor"] = float(new_anchor) if new_anchor is not None else ""
-
-            if new_stop is not None and (
-                position.stop_price is None or float(new_stop) != float(position.stop_price)
-            ):
-                updated = broker.update_stop(
-                    symbol=ccxt_symbol,
-                    new_stop_price=float(new_stop),
-                    new_trailing_anchor_price=float(new_anchor) if new_anchor is not None else None,
-                )
-                if updated is not None:
-                    position = updated
-                    _fill_position_fields(decision_row, position)
-
-            exit_sig = evaluate_exit(
-                position=position,
-                latest_features_row=latest_row,
-                market_state=market_state,
+        segment_result = execute_backtest_segment(
+            SegmentExecutionRequest(
+                segment=replay_segment,
+                boundary_policy=boundary_policy,
+                cfg=cfg,
+                broker=broker,
+                ccxt_symbol=ccxt_symbol,
                 expected_step_s=int(expected_step_s),
-            )
-
-            decision_row["exit_should_exit"] = bool(exit_sig.should_exit)
-            decision_row["exit_reason"] = exit_sig.reason or ""
-
-            if exit_sig.should_exit:
-                exit_reason = exit_sig.reason or "exit"
-
-                # Phase 2A stop-through is BACKTEST ONLY. (PnL may differ; lifecycle should match)
-                exit_price = latest_close
-                if exit_reason == "stop_hit" and position.stop_price is not None:
-                    bar_open = float(market_data.iloc[-1].get("open", latest_close))
-                    stop_px = float(position.stop_price)
-                    exit_price = min(bar_open, stop_px) if position.side == "LONG" else max(bar_open, stop_px)
-
-                trade = broker.realize_and_close(
-                    symbol=ccxt_symbol,
-                    exit_price=float(exit_price),
-                    reason=exit_reason,
-                    exit_ts_ms=now_ts_ms if now_ts_ms > 0 else None,
-                )
-
-                last_trades_path = append_trade_csv(
-                    trade=trade,
-                    exchange=bt_exchange,
-                    symbol=storage_symbol,   # STORAGE SYMBOL
+                writers=SegmentWriterContext(
+                    bt_exchange=bt_exchange,
+                    storage_symbol=storage_symbol,
                     timeframe=cfg.timeframe,
-                    market_reason=market_state.reason,
+                    write_decision=(
+                        _write_decision_once_per_bar
+                    ),
+                ),
+            )
+        )
+
+        bars_processed += int(
+            segment_result.bars_processed
+        )
+        cancelled_entry_count += int(
+            segment_result.cancelled_entry_count
+        )
+        forced_exit_count += int(
+            segment_result.forced_exit_count
+        )
+
+        if segment_result.last_decisions_path:
+            last_decisions_path = (
+                segment_result.last_decisions_path
+            )
+
+        if segment_result.last_trades_path:
+            last_trades_path = (
+                segment_result.last_trades_path
+            )
+
+        if research_event_writer is not None:
+            final_timestamp = pd.to_datetime(
+                replay_segment.bars.iloc[-1]["timestamp"],
+                utc=True,
+                errors="raise",
+            )
+            final_ts_ms = int(
+                final_timestamp.value // 1_000_000
+            )
+            final_reference_price = float(
+                replay_segment.bars.iloc[-1]["close"]
+            )
+
+            for action_fact in (
+                segment_result.boundary_action_facts
+            ):
+                research_event_sequence += 1
+
+                research_execution_events_path = (
+                    research_event_writer.append(
+                        ResearchExecutionEvent(
+                            event_id=(
+                                f"{runid}:"
+                                f"{research_event_sequence:06d}:"
+                                f"{action_fact.event_type}"
+                            ),
+                            event_sequence=(
+                                research_event_sequence
+                            ),
+                            run_id=runid,
+                            event_ts_ms=(
+                                action_fact.event_ts_ms
+                            ),
+                            event_type=(
+                                action_fact.event_type
+                            ),
+                            segment_id=(
+                                replay_segment.segment_id
+                            ),
+                            gap_id=(
+                                boundary_policy.following_gap_id
+                                or ""
+                            ),
+                            boundary_type=(
+                                boundary_policy.boundary_type
+                            ),
+                            position_side=(
+                                action_fact.position_side
+                            ),
+                            reference_price=(
+                                action_fact.reference_price
+                            ),
+                            related_exit_reason=(
+                                action_fact
+                                .related_exit_reason
+                            ),
+                        )
+                    )
                 )
 
-                p = _write_decision_once_per_bar(decision_row)
-                if p:
-                    last_decisions_path = p
+            research_event_sequence += 1
 
-                bars_processed += 1
-                continue
-
-        # ------------------------
-        # ENTRY
-        # ------------------------
-        if position is None:
-            remaining = broker.cooldown_remaining_bars(
-                symbol=ccxt_symbol,
-                now_ts_ms=now_ts_ms,
-                expected_step_s=int(expected_step_s),
-                cooldown_bars=int(getattr(cfg, "cooldown_bars", 0)),
+            research_execution_events_path = (
+                research_event_writer.append(
+                    ResearchExecutionEvent(
+                        event_id=(
+                            f"{runid}:"
+                            f"{research_event_sequence:06d}:"
+                            "segment_boundary_reached"
+                        ),
+                        event_sequence=(
+                            research_event_sequence
+                        ),
+                        run_id=runid,
+                        event_ts_ms=final_ts_ms,
+                        event_type=(
+                            "segment_boundary_reached"
+                        ),
+                        segment_id=(
+                            replay_segment.segment_id
+                        ),
+                        gap_id=(
+                            boundary_policy.following_gap_id
+                            or ""
+                        ),
+                        boundary_type=(
+                            boundary_policy.boundary_type
+                        ),
+                        position_side=(
+                            segment_result.final_position.side
+                            if segment_result.final_position
+                            is not None
+                            else ""
+                        ),
+                        reference_price=(
+                            final_reference_price
+                        ),
+                        related_exit_reason="",
+                    )
+                )
             )
-            decision_row["cooldown_remaining_bars"] = int(remaining)
 
-            if remaining <= 0:
-                entry_sig = evaluate_entry(features=feats, market_state=market_state)
-                decision_row["entry_should_enter"] = bool(entry_sig.should_enter)
-                decision_row["entry_side"] = entry_sig.side
-                decision_row["entry_confidence"] = float(entry_sig.confidence)
-                decision_row["entry_reason"] = entry_sig.reason
+        if (
+            segment_result.final_position is not None
+            and not boundary_policy
+            .unresolved_position_allowed
+        ):
+            raise RuntimeError(
+                "Segment ended with unresolved broker state "
+                "where the boundary policy requires flat: "
+                f"segment_id={replay_segment.segment_id!r} "
+                f"boundary_type="
+                f"{boundary_policy.boundary_type!r} "
+                f"position_side="
+                f"{segment_result.final_position.side!r} "
+                f"entry_ts_ms="
+                f"{segment_result.final_position.entry_ts_ms!r}"
+            )
 
-                if entry_sig.should_enter:
-                    size = min(
-                        size_position(signal=entry_sig, market_state=market_state),
-                        cfg.max_order_size,
-                    )
+        if not is_final_segment:
+            if segment_result.final_position is not None:
+                raise RuntimeError(
+                    "Broker state cannot cross into the next "
+                    "historical replay segment: "
+                    f"segment_id={replay_segment.segment_id!r}"
+                )
 
-                    # Entries are modeled as next-bar (prevents same-bar stop hits)
-                    if i + 1 < len(all_bars):
-                        nxt = all_bars.iloc[i + 1]["timestamp"]
-                        next_ts_ms = int(getattr(nxt, "value", 0) // 1_000_000)
-                        entry_ts_ms = next_ts_ms if next_ts_ms > 0 else (now_ts_ms + int(expected_step_s * 1000))
-                    else:
-                        entry_ts_ms = now_ts_ms + int(expected_step_s * 1000)
-
-                    stop_price = compute_initial_stop(
-                        side=entry_sig.side,
-                        entry_price=latest_close,
-                        atr=latest_atr,
-                    )
-
-                    broker.open_position(
-                        symbol=ccxt_symbol,
-                        side=entry_sig.side,
-                        size=size,
-                        entry_price=latest_close,
-                        entry_ts_ms=entry_ts_ms,
-                        stop_price=stop_price,
-                        trailing_anchor_price=(latest_high if entry_sig.side == "LONG" else latest_low),
-                    )
-
-                    position = broker.get_tracked_position(
-                        symbol=ccxt_symbol,
-                        latest_close=latest_close,
-                        latest_atr=latest_atr,
-                        atr_mult=float(ATR_MULT),
-                    )
-                    _fill_position_fields(decision_row, position)
-
-        p = _write_decision_once_per_bar(decision_row)
-        if p:
-            last_decisions_path = p
-
-        bars_processed += 1
+            broker.reset_segment_state(
+                symbol=ccxt_symbol,
+            )
 
     decisions_out = decisions_csv_path(exchange=bt_exchange, symbol=storage_symbol, timeframe=cfg.timeframe)
     trades_out = str(trades_csv_path(exchange=bt_exchange, symbol=storage_symbol, timeframe=cfg.timeframe))
@@ -522,8 +632,23 @@ def run_backtest(
             "bt_exchange": bt_exchange,
             "decisions_csv": decisions_out,
             "trades_csv": trades_out,
-            "bars_total": len(all_bars),
+            "bars_total": replay_plan.bars_total,
             "bars_processed": bars_processed,
+            "segment_count": len(replay_plan.segments),
+            "cancelled_entry_count": cancelled_entry_count,
+            "forced_exit_count": forced_exit_count,
+            "research_execution_event_count": (
+                research_event_sequence
+            ),
+            "research_execution_events_csv": (
+                research_execution_events_path
+            ),
+            "broker_realized_pnl_usd_total": float(
+                broker.realized_pnl_usd_total
+            ),
+            "broker_trades_closed": int(
+                broker.trades_closed
+            ),
             "last_decisions_path": last_decisions_path,
             "last_trades_path": last_trades_path,
         },
@@ -533,9 +658,12 @@ def run_backtest(
         bt_exchange=bt_exchange,
         symbol=ccxt_symbol,
         timeframe=cfg.timeframe,
-        bars_total=len(all_bars),
+        bars_total=replay_plan.bars_total,
         bars_processed=bars_processed,
         decisions_csv=decisions_out,
         trades_csv=trades_out,
+        research_execution_events_csv=(
+            research_execution_events_path
+        ),
     )
 

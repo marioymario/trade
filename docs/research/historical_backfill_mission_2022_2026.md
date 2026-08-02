@@ -331,7 +331,7 @@ Total missing 5-minute bars: 158
 
 The authoritative machine-readable manifest is:
 
-`docs/research/coinbase_history_2022_20260209_gaps.json`
+`files/research/contracts/coinbase_history_2022_20260209_gaps.json`
 
 ## 10. Final dataset audit
 
@@ -415,23 +415,69 @@ Required rules:
 - Include the gap manifest in reproducibility artifacts.
 - Keep validation and out-of-sample periods locked once defined.
 
-## 14. Recommended next mission
+## 14. Gap-aware research-loader completion
 
-The next mission should integrate the historical namespace and gap
-manifest into the research loader.
+The historical namespace and authoritative gap manifest are now
+integrated into the backtest research path.
 
-The loader should:
+Implemented modules:
 
-1. Load the isolated historical data tag.
-2. Detect segments separated by confirmed gaps.
-3. Expose continuous segments explicitly.
-4. Prevent backtests from silently crossing outages.
-5. Apply deterministic feature warmup per segment.
-6. Define chronological train, validation, and out-of-sample windows.
-7. Preserve the previously rejected entry-sequence candidate as frozen.
-8. Start a new scorer-search cycle using the expanded history.
+- `files/research/historical_dataset.py`
+- `files/backtest/replay.py`
+- `files/backtest/segment_executor.py`
+- `files/research/execution_events.py`
 
-## 15. Final conclusion
+Implemented behavior:
+
+1. The full isolated dataset is audited before requested-range slicing.
+2. Physical segments are constructed from the seven confirmed gaps.
+3. Stateful features warm independently inside each segment.
+4. No position, pending entry, trailing state, or cooldown crosses a
+   gap.
+5. Normal exit priority is preserved.
+6. Remaining positions are forced flat only at physical gap boundaries.
+7. Final-bar entry intent remains visible but is cancelled when no legal
+   next bar exists.
+8. Legacy backtest output remains behaviorally identical.
+9. Gap-aware runs emit a separate strict research execution-event
+   artifact.
+10. The complete four-year run passed an eight-segment contract audit.
+
+Complete-run proof:
+
+- stored bars: 431,842
+- processed decisions: 430,446
+- trades: 266
+- confirmed gaps: 7
+- physical segments: 8
+- decisions inside gaps: 0
+- trade timestamps inside gaps: 0
+- tiny three-bar segment preserved with zero decisions
+- independent post-gap warmup: PASS
+- segment-state isolation: PASS
+- full gap-aware contract: PASS
+
+## 15. Recommended next mission
+
+The next mission should move scorer walk-forward research fully onto the
+public gap-aware replay interface.
+
+Required work:
+
+1. Remove the private
+   `_load_all_ohlcv_parquet` dependency from
+   `files/research/scorer_walk_forward.py`.
+2. Define locked chronological train, validation, and out-of-sample
+   windows using the manifest-aware segment contract.
+3. Preserve the rejected entry-sequence candidate as frozen.
+4. Run deterministic scorer searches with versioned configurations and
+   isolated outputs.
+5. Rank candidates by repeatable out-of-sample profitability and risk
+   control rather than in-sample gain alone.
+6. Include the gap manifest and research execution-event artifact in
+   reproducibility outputs.
+
+## 16. Final conclusion
 
 The historical backfill mission is complete.
 

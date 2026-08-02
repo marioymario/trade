@@ -63,6 +63,88 @@ class PaperBroker:
     ) -> Optional[Position]:
         return self._tracked.get(symbol)
 
+    def cancel_pending_entry(
+        self,
+        *,
+        symbol: str,
+        now_ts_ms: int,
+    ) -> Optional[Position]:
+        """
+        Cancel a next-bar paper entry that has not become active yet.
+
+        A tracked position is considered pending only when its entry timestamp
+        is strictly later than now_ts_ms. Active positions are never removed
+        by this method.
+        """
+        position = self._tracked.get(symbol)
+
+        if position is None:
+            return None
+
+        entry_ts_ms = position.entry_ts_ms
+
+        if (
+            entry_ts_ms is None
+            or int(entry_ts_ms) <= int(now_ts_ms)
+        ):
+            raise RuntimeError(
+                "Refusing to cancel an active paper position: "
+                f"symbol={symbol!r} "
+                f"entry_ts_ms={entry_ts_ms!r} "
+                f"now_ts_ms={int(now_ts_ms)}"
+            )
+
+        cancelled = self._tracked.pop(symbol)
+
+        logger.info(
+            "Cancelled pending paper entry",
+            extra={
+                "symbol": symbol,
+                "side": cancelled.side,
+                "qty": float(cancelled.qty),
+                "entry_price": float(cancelled.entry_price),
+                "entry_ts_ms": int(entry_ts_ms),
+                "cancelled_at_ts_ms": int(now_ts_ms),
+            },
+        )
+
+        return cancelled
+
+    def reset_segment_state(
+        self,
+        *,
+        symbol: str,
+    ) -> None:
+        """
+        Reset state that must not cross a historical research segment.
+
+        The broker must already be flat. Cumulative realized PnL and closed
+        trade count are deliberately preserved.
+        """
+        position = self._tracked.get(symbol)
+
+        if position is not None:
+            raise RuntimeError(
+                "Cannot reset paper broker segment state while a "
+                "position is still tracked: "
+                f"symbol={symbol!r} "
+                f"side={position.side!r} "
+                f"entry_ts_ms={position.entry_ts_ms!r}"
+            )
+
+        self._last_exit_ts_ms.pop(symbol, None)
+
+        logger.info(
+            "Reset paper broker segment-local state",
+            extra={
+                "symbol": symbol,
+                "realized_pnl_usd_total": float(
+                    self.realized_pnl_usd_total
+                ),
+                "trades_closed": int(self.trades_closed),
+            },
+        )
+
     def update_stop(
         self,
         *,

@@ -282,6 +282,13 @@ Canonical trades layout:
 
 `data/processed/trades/{data_tag}/{SYMBOL_STORAGE}/{timeframe}/trades.csv`
 
+Canonical manifest-backed research execution-event layout:
+
+`data/processed/reports/{backtest_exchange}/{SYMBOL_STORAGE}/{timeframe}/research_execution_events.csv`
+
+The research execution-event artifact is created only for
+manifest-backed gap-aware runs. Legacy backtests do not create it.
+
 Primary observability truth:
 
 - decisions CSV
@@ -293,6 +300,62 @@ Decision semantics preserve the distinction between:
 
 - strategy or signal reason
 - execution or guardrail blocked reason
+
+### Gap-aware historical replay
+
+The manifest-backed historical loader and backtest orchestration are
+implemented for:
+
+- data tag: `coinbase_history_2022_20260209`
+- symbol: `BTC/USD`
+- timeframe: `5m`
+- dataset range:
+  `[2022-01-01T00:00:00Z, 2026-02-09T00:00:00Z)`
+- stored bars: 431,842
+- confirmed gaps: 7
+- physical replay segments: 8
+
+Canonical gap manifest:
+
+`files/research/contracts/coinbase_history_2022_20260209_gaps.json`
+
+Implemented replay rules:
+
+- the complete dataset is audited before range slicing
+- gaps and segments use inclusive-start, exclusive-end intervals
+- features are computed independently inside each physical segment
+- feature warmup never borrows bars across a confirmed gap
+- a segment with insufficient bars remains present but produces no
+  decisions
+- pending final-bar entries are cancelled when no next bar is legally
+  available
+- normal exit logic runs before any gap-boundary forced exit
+- positions still open at a physical gap boundary are closed at the
+  final valid pre-gap close
+- position, trailing, pending-entry, and cooldown state cannot cross a
+  gap
+- cumulative realized PnL and closed-trade totals are preserved across
+  segments
+- requested-range and dataset ends may expose unresolved final position
+  state
+- legacy backtests preserve their previous behavior
+
+Verified complete-run result:
+
+- bars total: 431,842
+- decision rows: 430,446
+- trade rows: 266
+- decision timestamps inside gaps: 0
+- trade entry or exit timestamps inside gaps: 0
+- duplicate decision timestamps: 0
+- full gap-aware contract audit: PASS
+
+Research execution events use a separate strict artifact with these
+event types:
+
+- `segment_boundary_reached`
+- `entry_cancelled`
+- `position_forced_exit`
 
 ## 11. Execution and safety state
 
@@ -453,7 +516,7 @@ Default page size:
 
 Authoritative machine-readable manifest:
 
-`docs/research/coinbase_history_2022_20260209_gaps.json`
+`files/research/contracts/coinbase_history_2022_20260209_gaps.json`
 
 Confirmed gaps:
 
@@ -533,7 +596,7 @@ Historical-backfill mission report:
 
 Historical gap manifest:
 
-- `docs/research/coinbase_history_2022_20260209_gaps.json`
+- `files/research/contracts/coinbase_history_2022_20260209_gaps.json`
 
 Archive documents:
 
