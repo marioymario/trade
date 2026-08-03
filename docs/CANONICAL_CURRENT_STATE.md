@@ -634,71 +634,109 @@ Preferred command workflow:
 
 In order:
 
-1. Add a gap-aware historical research loader.
-2. Expose continuous historical segments explicitly.
-3. Define new chronological train, validation, and out-of-sample windows.
-4. Run scorer research using the expanded historical dataset.
-5. Prioritize repeatable out-of-sample profitability and risk control.
-6. Preserve the frozen entry-sequence candidate and locked prior OOS.
-7. Continue honest LONG_ONLY paper observation.
-8. Keep event risk isolated until its independent research phase.
-9. Improve deployment verification and operational documentation.
-10. Do not move toward real-money execution without proven strategy edge.
+1. Build the deterministic multi-trial scorer campaign runner.
+2. Load and audit one HistoricalResearchSource per campaign process and reuse it explicitly across trials.
+3. Record versioned campaign manifests containing code commit, source fingerprint, folds, candidate identities, execution assumptions, and artifact paths.
+4. Run bounded scorer campaigns across the frozen manifest-backed chronological folds.
+5. Evaluate candidates using out-of-sample profitability, controlled drawdown, trade-count sufficiency, parameter stability, and realistic cost stress.
+6. Preserve all rejected candidates and campaign evidence reproducibly.
+7. Prioritize repeatable out-of-sample profitability, controlled drawdown, parameter stability, and realistic costs.
+8. Preserve the frozen entry-sequence candidate and locked prior out-of-sample evidence.
+9. Continue honest LONG_ONLY paper observation.
+10. Keep Event-Risk isolated until its independent research phase.
+11. Improve focused automated testing, deployment verification, and operational documentation.
+12. Do not move toward real-money execution without a proven strategy edge and verified live-execution safety.
 
 ## 23. Non-negotiables
 
-- Do not fabricate missing market data.
-- Do not mix prices from another exchange into the Coinbase dataset.
-- Do not silently backtest across known data gaps.
-- Do not re-enable SHORT without evidence.
-- Do not alter the live strategy while unrelated research is underway.
-- Do not optimize only for in-sample profit.
-- Do not use LOCAL for data-dependent execution.
-- Do not overwrite OLD-BOX runtime-owned `.env` or data.
-- Do not assume successful HTTP responses contain complete historical data.
-- Do not treat a passing backtest as proof without chronological OOS evidence.
+* Do not fabricate missing market data.
+* Do not mix prices from another exchange into the Coinbase dataset.
+* Do not silently backtest across known data gaps.
+* Do not re-enable SHORT without evidence.
+* Do not alter the live strategy while unrelated research is underway.
+* Do not optimize only for in-sample profit.
+* Do not use LOCAL for data-dependent execution.
+* Do not overwrite OLD-BOX runtime-owned `.env` or data.
+* Do not assume successful HTTP responses contain complete historical data.
+* Do not treat a passing backtest as proof without chronological out-of-sample evidence.
+* Do not silently fall back from manifest-backed research to a legacy or live-data path.
+* Do not change locked validation or final test windows after viewing results.
 
 ## 24. Current assessment
 
 System engineering:
 
-- operationally stable enough for research
-- observable
-- restart-safe
-- guarded
-- reproducible
-- still paper-only
+* operationally stable enough for research
+* observable
+* restart-safe
+* guarded
+* reproducible
+* still paper-only
 
 Historical research foundation:
 
-- long-range dataset complete
-- gaps documented
-- backfill reproducible
-- segmentation integration still required
+* long-range dataset complete
+* 1,500 daily partitions audited
+* seven confirmed source gaps documented
+* backfill reproducible
+* gap-aware loading complete
+* eight physical replay segments exposed
+* independent post-gap warmup complete
+* boundary-safe entry and exit behavior complete
+* strict research execution-event artifact complete
+* full four-year gap-aware contract audit passed
+* legacy backtest behavior preserved
+
+Walk-forward research state:
+
+- public HistoricalResearchSource contract complete
+- cost-signaling historical source resolver complete
+- manifest_backed_v1 enforcement complete
+- half-open chronological folds complete
+- exact gap-aware fold planning complete
+- deterministic fold statistics complete
+- frozen legacy campaign separation complete
+- private historical engine-loader dependency removed
+- multi-trial campaign runner does not yet exist
 
 Strategy state:
 
-- edge not proven
-- SHORT remains quarantined
-- LONG_ONLY remains the live baseline
-- scorer optimization is the next major research path
+* edge not proven
+* SHORT remains quarantined
+* LONG_ONLY remains the live paper baseline
+* manifest-backed scorer research is the next major research path
+
+Single-trial utility boundary:
+
+* `files/research/run_single_scorer_trial.py` remains a low-level research utility.
+* It inherits the general runtime `DATA_TAG` configuration.
+* When no historical manifest exists for that tag, the backtest engine may intentionally use the legacy replay path.
+* This behavior is preserved for compatibility and is not the authoritative campaign contract.
+* The future multi-trial campaign runner must require `manifest_backed_v1`.
+* It must resolve and audit one `HistoricalResearchSource` before executing trials.
+* It must reuse that resolved source across the entire campaign process.
+* It must fail explicitly rather than silently falling back to legacy replay.
 
 ## 25. Bottom line
 
 The system now has:
 
-- a healthy live paper runtime
-- explicit operator controls
-- reliable decision and trade logging
-- an isolated historical Coinbase dataset
-- 1,500 audited daily partitions
-- a machine-readable source-gap manifest
-- deterministic chunked historical backfill tooling
-- a walk-forward scorer research foundation
-- a disciplined local-to-OLD-BOX workflow
+* a healthy live paper runtime
+* explicit operator controls
+* reliable decision and trade logging
+* an isolated historical Coinbase dataset
+* 1,500 audited daily partitions
+* a machine-readable source-gap manifest
+* deterministic chunked historical backfill tooling
+* gap-aware historical loading and replay
+* eight independently warmed physical replay segments
+* boundary-safe entry, exit, and broker-state behavior
+* strict research execution events
+* verified legacy regression behavior
+* a walk-forward scorer research foundation
+* an invite-first contributor and review framework
+* a disciplined LOCAL-to-OLD-BOX workflow
 
-The next major mission is not more backfill work.
+The next major mission is not more historical loading, replay, or walk-forward planning work.
 
-The next major mission is to make the research loader gap-aware and
-begin a new chronological scorer-search cycle using the expanded
-historical evidence.
+The next major mission is to build the deterministic multi-trial campaign runner, reuse one audited historical source per campaign process, record complete campaign identity, and begin bounded scorer research across the frozen manifest-backed folds.

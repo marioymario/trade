@@ -243,7 +243,8 @@ def main() -> None:
     halt_orders_file = os.environ.get("HALT_ORDERS_FILE", "").strip()
     arm_file = os.environ.get("ARM_FILE", "").strip() or f"{flags_dir}/ARM"
 
-    broker_kind = os.environ.get("BROKER", "paper").strip().lower()  # paper | alpaca
+    # Supported now: paper. Alpaca is reserved for future integration.
+    broker_kind = os.environ.get("BROKER", "paper").strip().lower()
 
     test_hooks_enabled = _parse_bool_env("TEST_HOOKS_ENABLED", False)
     force_entry_signal_once = test_hooks_enabled and _parse_bool_env("FORCE_ENTRY_SIGNAL_ONCE", False)

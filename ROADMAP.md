@@ -280,7 +280,7 @@ Planned fold statistics include:
 stored_bars_in_requested_window
 replay_bars_including_warmup
 warmup_bars_total
-eligible_decision_bar_count
+structurally_eligible_bar_count
 physical_segment_count
 gap_count_crossed
 ```

@@ -737,7 +737,7 @@ Planned deterministic fold statistics include:
 stored_bars_in_requested_window
 replay_bars_including_warmup
 warmup_bars_total
-eligible_decision_bar_count
+structurally_eligible_bar_count
 physical_segment_count
 gap_count_crossed
 ```
@@ -749,10 +749,10 @@ replay_bars_including_warmup
 =
 warmup_bars_total
 +
-eligible_decision_bar_count
-```
+structurally_eligible_bar_count
 
-Eligible decision bar count means bars at or after each segment’s tradable start.
+```
+Structurally eligible bar count means bars at or after each segment’s tradable start.
 
 It does not predict how many decision rows the executor will ultimately write.
 
