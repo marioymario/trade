@@ -257,13 +257,11 @@ def resolve_walk_forward_split(
     )
 
 
-def resolve_walk_forward_splits(
+def resolve_walk_forward_splits_for_source(
     *,
-    trading_config: TradingConfig,
-) -> tuple[
-    tuple[ResolvedWalkForwardSplit, ...],
-    HistoricalResearchSource,
-]:
+    source: HistoricalResearchSource,
+    min_bars: int,
+) -> tuple[ResolvedWalkForwardSplit, ...]:
     if SOURCE_CONTRACT != MANIFEST_BACKED_SOURCE_CONTRACT:
         raise RuntimeError(
             "New walk-forward planning requires "
@@ -271,14 +269,13 @@ def resolve_walk_forward_splits(
             f"configured={SOURCE_CONTRACT!r}"
         )
 
-    source = load_and_resolve_historical_research_source(
-        data_tag=trading_config.data_tag,
-        expected_symbol=trading_config.symbol,
-        expected_timeframe=trading_config.timeframe,
-    )
+    resolved_min_bars = int(min_bars)
+
+    if resolved_min_bars <= 0:
+        raise ValueError("min_bars must be positive.")
 
     warmup_bars = max(
-        int(trading_config.min_bars),
+        resolved_min_bars,
         50,
     ) + 5
 
@@ -287,7 +284,7 @@ def resolve_walk_forward_splits(
             source=source,
             split=split,
             warmup_bars=warmup_bars,
-            min_bars=int(trading_config.min_bars),
+            min_bars=resolved_min_bars,
         )
         for split in WALK_FORWARD_SPLITS
     )
@@ -298,5 +295,26 @@ def resolve_walk_forward_splits(
         raise ValueError(
             "Walk-forward split names must be unique."
         )
+
+    return resolved
+
+
+def resolve_walk_forward_splits(
+    *,
+    trading_config: TradingConfig,
+) -> tuple[
+    tuple[ResolvedWalkForwardSplit, ...],
+    HistoricalResearchSource,
+]:
+    source = load_and_resolve_historical_research_source(
+        data_tag=trading_config.data_tag,
+        expected_symbol=trading_config.symbol,
+        expected_timeframe=trading_config.timeframe,
+    )
+
+    resolved = resolve_walk_forward_splits_for_source(
+        source=source,
+        min_bars=int(trading_config.min_bars),
+    )
 
     return resolved, source
