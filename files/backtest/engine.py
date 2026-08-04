@@ -309,6 +309,7 @@ def run_backtest(
     cfg: Optional[TradingConfig] = None,
     start_ts_ms: Optional[int] = None,
     end_ts_ms: Optional[int] = None,
+    replay_plan: ReplayPlan | None = None,
 ) -> BacktestResult:
     """
     Deterministic offline replay:
@@ -358,15 +359,19 @@ def run_backtest(
         slippage_bps=getattr(cfg, "slippage_bps", 0.0),
     )
 
-    replay_plan = _resolve_backtest_replay_plan(
-        cfg=cfg,
-        storage_symbol=storage_symbol,
-        start_ts_ms=trade_start_ts_ms,
-        end_ts_ms=(
-            int(end_ts_ms)
-            if end_ts_ms is not None
-            else None
-        ),
+    resolved_replay_plan = (
+        replay_plan
+        if replay_plan is not None
+        else _resolve_backtest_replay_plan(
+            cfg=cfg,
+            storage_symbol=storage_symbol,
+            start_ts_ms=trade_start_ts_ms,
+            end_ts_ms=(
+                int(end_ts_ms)
+                if end_ts_ms is not None
+                else None
+            ),
+        )
     )
 
     # Restart-safe decision dedupe for bt output namespace
@@ -416,21 +421,21 @@ def run_backtest(
             timeframe=cfg.timeframe,
             run_id=runid,
         )
-        if replay_plan.gap_aware
+        if resolved_replay_plan.gap_aware
         else None
     )
     research_event_sequence = 0
     research_execution_events_path = ""
 
     for segment_index, replay_segment in enumerate(
-        replay_plan.segments
+        resolved_replay_plan.segments
     ):
         is_final_segment = (
             segment_index
-            == len(replay_plan.segments) - 1
+            == len(resolved_replay_plan.segments) - 1
         )
 
-        if replay_plan.gap_aware:
+        if resolved_replay_plan.gap_aware:
             boundary_policy = (
                 _build_research_segment_boundary_policy(
                     segment=replay_segment,

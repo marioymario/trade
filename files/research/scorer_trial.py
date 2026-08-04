@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, fields
 from typing import Any, Iterator
 
 from files.backtest.engine import BacktestResult, run_backtest
+from files.backtest.replay import ReplayPlan
 from files.config import TradingConfig
 from files.models.entry_model import EntryModel, EntryModelConfig
 from files.research.scorer_parameter_space import ScorerTrial
@@ -26,6 +27,7 @@ class TrialRunRequest:
 
     start_ts_ms: int | None = None
     end_ts_ms: int | None = None
+    replay_plan: ReplayPlan | None = None
 
 
 @dataclass(frozen=True)
@@ -229,6 +231,7 @@ def run_single_trial(
             cfg=request.trading_config,
             start_ts_ms=request.start_ts_ms,
             end_ts_ms=request.end_ts_ms,
+            replay_plan=request.replay_plan,
         )
 
     return TrialRunResult(
