@@ -30,6 +30,9 @@ from files.research.scorer_parameter_space import (
     ScorerTrial,
     generate_trials,
 )
+from files.research.scorer_trial import (
+    verify_fixed_strategy_contract,
+)
 from files.research.scorer_walk_forward import (
     ResolvedWalkForwardSplit,
     resolve_walk_forward_splits_for_source,

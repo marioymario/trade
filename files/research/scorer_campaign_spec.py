@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import hashlib
+import json
+from pathlib import Path
 import re
 import subprocess
 from typing import Any, Sequence
@@ -266,6 +268,58 @@ def load_clean_git_identity() -> GitIdentity:
         working_tree_clean=True,
     )
 
+
+
+def load_deployed_git_identity(
+    path: str | Path = (
+        "files/research/contracts/"
+        ".deployed_git_identity.json"
+    ),
+) -> GitIdentity:
+    identity_path = Path(path)
+
+    try:
+        payload = json.loads(
+            identity_path.read_text(encoding="utf-8")
+        )
+    except Exception as exc:
+        raise CampaignSpecificationError(
+            "Unable to load deployed Git identity: "
+            f"{identity_path}"
+        ) from exc
+
+    commit = str(payload.get("git_commit", "")).strip()
+    branch = str(payload.get("git_branch", "")).strip()
+    clean = payload.get("working_tree_clean")
+
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise CampaignSpecificationError(
+            "Deployed Git commit must be a lowercase "
+            "40-character SHA-1 digest."
+        )
+
+    if not branch:
+        raise CampaignSpecificationError(
+            "Deployed Git branch must be non-empty."
+        )
+
+    if clean is not True:
+        raise CampaignSpecificationError(
+            "Deployed Git identity must record a clean tree."
+        )
+
+    return GitIdentity(
+        git_commit=commit,
+        git_branch=branch,
+        working_tree_clean=True,
+    )
+
+
+def load_runtime_git_identity() -> GitIdentity:
+    if Path(".git").exists():
+        return load_clean_git_identity()
+
+    return load_deployed_git_identity()
 
 def campaign_identity_payload(
     *,

@@ -24,6 +24,21 @@ fi
 
 cd "${ROOT_DIR}"
 
+GIT_COMMIT="$(git rev-parse HEAD)"
+GIT_BRANCH="$(git branch --show-current)"
+GIT_STATUS="$(git status --porcelain)"
+
+if [[ -z "${GIT_COMMIT}" || -z "${GIT_BRANCH}" ]]; then
+  echo "ERROR: unable to resolve Git identity"
+  exit 2
+fi
+
+if [[ -z "${GIT_STATUS}" ]]; then
+  GIT_WORKING_TREE_CLEAN=true
+else
+  GIT_WORKING_TREE_CLEAN=false
+fi
+
 SSH_CMD="ssh"
 if [[ -n "${RSYNC_SSH_OPTS}" ]]; then
   SSH_CMD="ssh ${RSYNC_SSH_OPTS}"
@@ -69,5 +84,22 @@ fi
 echo "=== RSYNC DEPLOY (no delete) ==="
 "${RSYNC_BASE[@]}" "${SRC}" "${DST}"
 
+DEPLOYED_AT_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+DEPLOY_IDENTITY_PATH="${OLD_BOX_DIR%/}/files/research/contracts/.deployed_git_identity.json"
+
+"${SSH_CMD}" "${OLD_BOX_HOST}" \
+  "mkdir -p '${OLD_BOX_DIR%/}/files/research/contracts' && cat > '${DEPLOY_IDENTITY_PATH}'" <<EOF
+{
+  "git_commit": "${GIT_COMMIT}",
+  "git_branch": "${GIT_BRANCH}",
+  "working_tree_clean": ${GIT_WORKING_TREE_CLEAN},
+  "deployed_at_utc": "${DEPLOYED_AT_UTC}"
+}
+EOF
+
 echo
+echo "deployed_git_commit=${GIT_COMMIT}"
+echo "deployed_git_branch=${GIT_BRANCH}"
+echo "deployed_working_tree_clean=${GIT_WORKING_TREE_CLEAN}"
 echo "Done."
