@@ -10,6 +10,10 @@ from files.config import TradingConfig
 from files.research.historical_dataset import (
     HistoricalDatasetContractError,
 )
+from files.research.scorer_campaign_aggregation import (
+    CampaignAggregationError,
+    aggregate_campaign_results,
+)
 from files.research.scorer_campaign_builder import (
     InitializedScorerCampaign,
 )
@@ -190,6 +194,9 @@ def build_status(
     last_execution_id: str,
     successful_ids: set[str],
     failed_ids: set[str],
+    eligible_candidate_count: int = 0,
+    rejected_candidate_count: int = 0,
+    incomplete_candidate_count: int = 0,
 ) -> dict[str, Any]:
     planned_count = len(
         campaign.execution_plan.executions
@@ -219,9 +226,15 @@ def build_status(
         "succeeded_execution_count": succeeded_count,
         "failed_execution_count": failed_count,
         "pending_execution_count": pending_count,
-        "eligible_candidate_count": 0,
-        "rejected_candidate_count": 0,
-        "incomplete_candidate_count": 0,
+        "eligible_candidate_count": int(
+            eligible_candidate_count
+        ),
+        "rejected_candidate_count": int(
+            rejected_candidate_count
+        ),
+        "incomplete_candidate_count": int(
+            incomplete_candidate_count
+        ),
         "last_execution_id": last_execution_id,
     }
 
@@ -236,6 +249,9 @@ def write_status(
     last_execution_id: str,
     successful_ids: set[str],
     failed_ids: set[str],
+    eligible_candidate_count: int = 0,
+    rejected_candidate_count: int = 0,
+    incomplete_candidate_count: int = 0,
 ) -> dict[str, Any]:
     payload = build_status(
         campaign=campaign,
@@ -246,6 +262,15 @@ def write_status(
         last_execution_id=last_execution_id,
         successful_ids=successful_ids,
         failed_ids=failed_ids,
+        eligible_candidate_count=(
+            eligible_candidate_count
+        ),
+        rejected_candidate_count=(
+            rejected_candidate_count
+        ),
+        incomplete_candidate_count=(
+            incomplete_candidate_count
+        ),
     )
 
     write_json_atomic(
@@ -261,6 +286,7 @@ def is_campaign_wide_failure(exc: BaseException) -> bool:
         exc,
         (
             HistoricalDatasetContractError,
+            CampaignAggregationError,
             CampaignArtifactWriteError,
             CampaignSpecificationError,
             CampaignRunnerError,
@@ -450,6 +476,26 @@ def run_scorer_campaign(
 
     completed_at_utc = utc_now_text()
 
+    try:
+        aggregation = aggregate_campaign_results(
+            campaign=campaign,
+            write_artifacts=True,
+        )
+    except Exception:
+        write_status(
+            campaign=campaign,
+            status="failed",
+            created_at_utc=created_at_utc,
+            started_at_utc=started_at_utc,
+            completed_at_utc=completed_at_utc,
+            last_execution_id=last_execution_id,
+            successful_ids=successful_ids,
+            failed_ids=set(failures),
+        )
+        raise
+
+    summary = aggregation["summary"]
+
     final_status = (
         "completed_with_failures"
         if failures
@@ -465,4 +511,13 @@ def run_scorer_campaign(
         last_execution_id=last_execution_id,
         successful_ids=successful_ids,
         failed_ids=set(failures),
+        eligible_candidate_count=int(
+            summary["eligible_candidate_count"]
+        ),
+        rejected_candidate_count=int(
+            summary["rejected_candidate_count"]
+        ),
+        incomplete_candidate_count=int(
+            summary["incomplete_candidate_count"]
+        ),
     )
