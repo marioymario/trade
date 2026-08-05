@@ -48,6 +48,12 @@ class CampaignExecution:
     inclusive_backtest_end_ts_ms: int
 
     run_id: str
+
+    result_json: str
+    decisions_csv: str
+    trades_csv: str
+    research_execution_events_csv: str
+
     status: str = "pending"
 
     def as_dict(self) -> dict[str, Any]:
@@ -149,6 +155,57 @@ def run_id_for_execution(
     )
 
 
+def _execution_artifact_paths(
+    *,
+    campaign_id: str,
+    execution_id: str,
+    run_id: str,
+    data_tag: str,
+    symbol: str,
+    timeframe: str,
+) -> dict[str, str]:
+    symbol_storage = (
+        str(symbol)
+        .strip()
+        .upper()
+        .replace("/", "_")
+        .replace(":", "_")
+        .replace(" ", "_")
+    )
+
+    backtest_exchange = (
+        f"{data_tag}_bt_{run_id}"
+    )
+
+    campaign_root = (
+        "data/processed/research/scorer_campaigns/"
+        f"{campaign_id}"
+    )
+
+    return {
+        "result_json": (
+            f"{campaign_root}/trials/"
+            f"{execution_id}/result.json"
+        ),
+        "decisions_csv": (
+            "data/processed/decisions/"
+            f"{backtest_exchange}/"
+            f"{symbol_storage}/{timeframe}/"
+            "decisions.csv"
+        ),
+        "trades_csv": (
+            "data/processed/trades/"
+            f"{backtest_exchange}/"
+            f"{symbol_storage}/{timeframe}/"
+            "trades.csv"
+        ),
+        "research_execution_events_csv": (
+            "data/processed/research/executions/"
+            f"{run_id}/events.csv"
+        ),
+    }
+
+
 def build_campaign_execution_plan(
     *,
     campaign_id: str,
@@ -238,6 +295,22 @@ def build_campaign_execution_plan(
                         )
                     )
 
+                    run_id = run_id_for_execution(
+                        campaign_id=campaign_id,
+                        execution_id=execution_id,
+                    )
+
+                    artifact_paths = (
+                        _execution_artifact_paths(
+                            campaign_id=campaign_id,
+                            execution_id=execution_id,
+                            run_id=run_id,
+                            data_tag=specification.data_tag,
+                            symbol=specification.symbol,
+                            timeframe=specification.timeframe,
+                        )
+                    )
+
                     executions.append(
                         CampaignExecution(
                             execution_index=(
@@ -265,9 +338,20 @@ def build_campaign_execution_plan(
                             inclusive_backtest_end_ts_ms=(
                                 inclusive_end_ts_ms
                             ),
-                            run_id=run_id_for_execution(
-                                campaign_id=campaign_id,
-                                execution_id=execution_id,
+                            run_id=run_id,
+                            result_json=(
+                                artifact_paths["result_json"]
+                            ),
+                            decisions_csv=(
+                                artifact_paths["decisions_csv"]
+                            ),
+                            trades_csv=(
+                                artifact_paths["trades_csv"]
+                            ),
+                            research_execution_events_csv=(
+                                artifact_paths[
+                                    "research_execution_events_csv"
+                                ]
                             ),
                         )
                     )

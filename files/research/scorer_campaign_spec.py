@@ -21,8 +21,114 @@ from files.research.scorer_search_config import (
 )
 
 
-CAMPAIGN_SCHEMA_VERSION = 1
+CAMPAIGN_SCHEMA_VERSION = 2
 TRIAL_SPACE_VERSION = "scorer_parameter_space_v1"
+REJECTION_POLICY_VERSION = "scorer_rejection_policy_v1"
+RANKING_POLICY_VERSION = "scorer_ranking_policy_v1"
+
+
+def rejection_policy_definition() -> dict[str, Any]:
+    return {
+        "policy_version": REJECTION_POLICY_VERSION,
+        "rules": [
+            {
+                "reason_code": "execution_incomplete",
+                "condition": (
+                    "Any planned execution result is missing "
+                    "or does not have status='succeeded'."
+                ),
+            },
+            {
+                "reason_code": "short_trade_detected",
+                "condition": (
+                    "Any execution reports short_trade_count > 0."
+                ),
+            },
+            {
+                "reason_code": "minimum_total_trades",
+                "condition": (
+                    "Combined train and validation trade count "
+                    "is below minimum_total_trades."
+                ),
+                "threshold_field": "minimum_total_trades",
+            },
+            {
+                "reason_code": (
+                    "minimum_validation_trades_per_split"
+                ),
+                "condition": (
+                    "Any base-cost validation split has fewer "
+                    "trades than "
+                    "minimum_validation_trades_per_split."
+                ),
+                "threshold_field": (
+                    "minimum_validation_trades_per_split"
+                ),
+            },
+            {
+                "reason_code": (
+                    "nonpositive_total_validation_pnl"
+                ),
+                "condition": (
+                    "Combined base-cost validation PnL is "
+                    "less than or equal to zero."
+                ),
+            },
+            {
+                "reason_code": (
+                    "nonpositive_worst_validation_fold"
+                ),
+                "condition": (
+                    "Worst base-cost validation-fold PnL is "
+                    "less than or equal to zero."
+                ),
+            },
+            {
+                "reason_code": "cost_stress_failure",
+                "condition": (
+                    "Any configured non-base cost scenario "
+                    "fails its validation requirements."
+                ),
+            },
+        ],
+    }
+
+
+def ranking_policy_definition() -> dict[str, Any]:
+    return {
+        "policy_version": RANKING_POLICY_VERSION,
+        "eligible_candidates_only": True,
+        "ordering": [
+            {
+                "field": "worst_validation_fold_pnl_usd",
+                "direction": "descending",
+            },
+            {
+                "field": "total_validation_pnl_usd",
+                "direction": "descending",
+            },
+            {
+                "field": "validation_return_to_drawdown",
+                "direction": "descending",
+            },
+            {
+                "field": "positive_validation_fold_count",
+                "direction": "descending",
+            },
+            {
+                "field": "total_validation_trades",
+                "direction": "descending",
+            },
+            {
+                "field": "validation_pnl_concentration",
+                "direction": "ascending",
+            },
+            {
+                "field": "trial_id",
+                "direction": "ascending",
+            },
+        ],
+    }
 
 _COST_SCENARIO_ID_RE = re.compile(
     r"^[a-z][a-z0-9_]*$"
@@ -217,6 +323,12 @@ class CampaignSpecification:
                 scenario.as_dict()
                 for scenario in self.cost_scenarios
             ],
+            "rejection_policy": (
+                rejection_policy_definition()
+            ),
+            "ranking_policy": (
+                ranking_policy_definition()
+            ),
         }
 
 
