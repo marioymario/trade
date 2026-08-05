@@ -21,8 +21,11 @@ from files.research.scorer_search_config import (
 )
 
 
-CAMPAIGN_SCHEMA_VERSION = 2
+CAMPAIGN_SCHEMA_VERSION = 3
 TRIAL_SPACE_VERSION = "scorer_parameter_space_v1"
+EXECUTION_ARTIFACT_CONTRACT_VERSION = (
+    "scorer_execution_artifacts_v2"
+)
 REJECTION_POLICY_VERSION = "scorer_rejection_policy_v1"
 RANKING_POLICY_VERSION = "scorer_ranking_policy_v1"
 
@@ -300,6 +303,9 @@ class CampaignSpecification:
             "timeframe": self.timeframe,
             "trial_space_version": (
                 self.trial_space_version
+            ),
+            "execution_artifact_contract_version": (
+                EXECUTION_ARTIFACT_CONTRACT_VERSION
             ),
             "trial_count": int(self.trial_count),
             "random_seed": int(self.random_seed),

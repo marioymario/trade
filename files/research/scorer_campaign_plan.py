@@ -5,6 +5,11 @@ import hashlib
 import re
 from typing import Any, Sequence
 
+from files.data.paths import (
+    decisions_csv_path,
+    research_execution_events_csv_path,
+    trades_csv_path,
+)
 from files.research.scorer_campaign_io import (
     canonical_json_text,
 )
@@ -164,15 +169,6 @@ def _execution_artifact_paths(
     symbol: str,
     timeframe: str,
 ) -> dict[str, str]:
-    symbol_storage = (
-        str(symbol)
-        .strip()
-        .upper()
-        .replace("/", "_")
-        .replace(":", "_")
-        .replace(" ", "_")
-    )
-
     backtest_exchange = (
         f"{data_tag}_bt_{run_id}"
     )
@@ -187,24 +183,28 @@ def _execution_artifact_paths(
             f"{campaign_root}/trials/"
             f"{execution_id}/result.json"
         ),
-        "decisions_csv": (
-            "data/processed/decisions/"
-            f"{backtest_exchange}/"
-            f"{symbol_storage}/{timeframe}/"
-            "decisions.csv"
+        "decisions_csv": str(
+            decisions_csv_path(
+                exchange=backtest_exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+            )
         ),
-        "trades_csv": (
-            "data/processed/trades/"
-            f"{backtest_exchange}/"
-            f"{symbol_storage}/{timeframe}/"
-            "trades.csv"
+        "trades_csv": str(
+            trades_csv_path(
+                exchange=backtest_exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+            )
         ),
-        "research_execution_events_csv": (
-            "data/processed/research/executions/"
-            f"{run_id}/events.csv"
+        "research_execution_events_csv": str(
+            research_execution_events_csv_path(
+                exchange=backtest_exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+            )
         ),
     }
-
 
 def build_campaign_execution_plan(
     *,
