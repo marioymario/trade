@@ -21,12 +21,12 @@ from files.research.scorer_search_config import (
 )
 
 
-CAMPAIGN_SCHEMA_VERSION = 4
+CAMPAIGN_SCHEMA_VERSION = 5
 TRIAL_SPACE_VERSION = "scorer_parameter_space_v1"
 EXECUTION_ARTIFACT_CONTRACT_VERSION = (
     "scorer_execution_artifacts_v2"
 )
-REJECTION_POLICY_VERSION = "scorer_rejection_policy_v2"
+REJECTION_POLICY_VERSION = "scorer_rejection_policy_v3"
 RANKING_POLICY_VERSION = "scorer_ranking_policy_v1"
 
 
@@ -48,7 +48,7 @@ def rejection_policy_definition() -> dict[str, Any]:
                 ),
             },
             {
-                "reason_code": "minimum_total_trades",
+                "reason_code": "minimum_total_trades_not_met",
                 "condition": (
                     "Combined train and validation trade count "
                     "is below minimum_total_trades."
@@ -57,7 +57,7 @@ def rejection_policy_definition() -> dict[str, Any]:
             },
             {
                 "reason_code": (
-                    "minimum_validation_trades_per_split"
+                    "minimum_validation_trades_per_split_not_met"
                 ),
                 "condition": (
                     "Any base-cost validation split has fewer "
