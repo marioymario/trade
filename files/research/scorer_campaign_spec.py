@@ -21,12 +21,12 @@ from files.research.scorer_search_config import (
 )
 
 
-CAMPAIGN_SCHEMA_VERSION = 3
+CAMPAIGN_SCHEMA_VERSION = 4
 TRIAL_SPACE_VERSION = "scorer_parameter_space_v1"
 EXECUTION_ARTIFACT_CONTRACT_VERSION = (
     "scorer_execution_artifacts_v2"
 )
-REJECTION_POLICY_VERSION = "scorer_rejection_policy_v1"
+REJECTION_POLICY_VERSION = "scorer_rejection_policy_v2"
 RANKING_POLICY_VERSION = "scorer_ranking_policy_v1"
 
 
@@ -70,7 +70,7 @@ def rejection_policy_definition() -> dict[str, Any]:
             },
             {
                 "reason_code": (
-                    "nonpositive_total_validation_pnl"
+                    "non_positive_total_validation_pnl"
                 ),
                 "condition": (
                     "Combined base-cost validation PnL is "
@@ -79,7 +79,7 @@ def rejection_policy_definition() -> dict[str, Any]:
             },
             {
                 "reason_code": (
-                    "nonpositive_worst_validation_fold"
+                    "non_positive_worst_validation_fold_pnl"
                 ),
                 "condition": (
                     "Worst base-cost validation-fold PnL is "
