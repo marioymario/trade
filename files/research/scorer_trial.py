@@ -11,6 +11,10 @@ from files.models.entry_model import EntryModel, EntryModelConfig
 from files.research.scorer_parameter_space import ScorerTrial
 from files.research.scorer_search_config import FIXED_SETTINGS
 import files.strategy.rules as strategy_rules
+from files.strategy.rules import (
+    EARLY_FAILURE_DISABLED,
+    EarlyFailureConfig,
+)
 
 
 ENTRY_MODEL_CONFIG_FIELDS: frozenset[str] = frozenset(
@@ -28,6 +32,10 @@ class TrialRunRequest:
     start_ts_ms: int | None = None
     end_ts_ms: int | None = None
     replay_plan: ReplayPlan | None = None
+
+    early_failure_config: EarlyFailureConfig = (
+        EARLY_FAILURE_DISABLED
+    )
 
 
 @dataclass(frozen=True)
@@ -232,6 +240,9 @@ def run_single_trial(
             start_ts_ms=request.start_ts_ms,
             end_ts_ms=request.end_ts_ms,
             replay_plan=request.replay_plan,
+            early_failure_config=(
+                request.early_failure_config
+            ),
         )
 
     return TrialRunResult(

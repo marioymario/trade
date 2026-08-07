@@ -44,6 +44,8 @@ from files.research.historical_dataset import (
 from files.strategy.filters import determine_market_state
 from files.strategy.rules import (
     ATR_MULT,
+    EARLY_FAILURE_DISABLED,
+    EarlyFailureConfig,
     compute_initial_stop,
     compute_trailing_stop_update,
     evaluate_entry,
@@ -310,6 +312,9 @@ def run_backtest(
     start_ts_ms: Optional[int] = None,
     end_ts_ms: Optional[int] = None,
     replay_plan: ReplayPlan | None = None,
+    early_failure_config: EarlyFailureConfig = (
+        EARLY_FAILURE_DISABLED
+    ),
 ) -> BacktestResult:
     """
     Deterministic offline replay:
@@ -471,6 +476,7 @@ def run_backtest(
                         _write_decision_once_per_bar
                     ),
                 ),
+                early_failure_config=early_failure_config,
             )
         )
 

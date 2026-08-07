@@ -1,6 +1,9 @@
 ## trade/files/strategy/rules.py
 from __future__ import annotations
 
+from dataclasses import dataclass
+import math
+
 from files.core.types import EntrySignal, ExitSignal, MarketState, Position
 from files.models.entry_model import EntryModel
 
@@ -16,6 +19,37 @@ ENABLE_SHORT: bool = False
 ATR_MULT: float = 2.0          # initial stop distance
 TRAIL_ATR_MULT: float = 2.0    # trailing stop distance
 MAX_HOLD_BARS: int = 24        # set to 2 to force exits during testing
+
+
+@dataclass(frozen=True)
+class EarlyFailureConfig:
+    """Closed-bar early-continuation failure policy."""
+
+    enabled: bool = False
+    checkpoint_bars: int = 3
+    mfe_threshold_r: float = 0.10
+
+    def __post_init__(self) -> None:
+        if int(self.checkpoint_bars) < 2:
+            raise ValueError(
+                "early_failure checkpoint_bars must be >= 2 "
+                "because same-entry-bar exits are prohibited."
+            )
+
+        threshold = float(self.mfe_threshold_r)
+
+        if not math.isfinite(threshold):
+            raise ValueError(
+                "early_failure mfe_threshold_r must be finite."
+            )
+
+        if threshold < 0.0:
+            raise ValueError(
+                "early_failure mfe_threshold_r must be >= 0."
+            )
+
+
+EARLY_FAILURE_DISABLED = EarlyFailureConfig()
 
 
 def compute_initial_stop(*, side: str, entry_price: float, atr: float) -> float:
@@ -262,6 +296,7 @@ def evaluate_exit(
     latest_features_row,
     market_state: MarketState,
     expected_step_s: int,
+    early_failure_config: EarlyFailureConfig = EARLY_FAILURE_DISABLED,
 ) -> ExitSignal:
     if not market_state.tradable:
         return ExitSignal(should_exit=True, reason=market_state.reason or "not_tradable")
@@ -292,15 +327,65 @@ def evaluate_exit(
         if position.side == "SHORT" and close >= sp:
             return ExitSignal(should_exit=True, reason="stop_hit")
 
-    # Time stop
+    held: int | None = None
+
     if position.entry_ts_ms is not None:
         held = _bars_held(
             entry_ts_ms=int(position.entry_ts_ms),
             now_ts_ms=int(now_ts_ms),
             expected_step_s=int(expected_step_s),
         )
-        if held >= int(MAX_HOLD_BARS):
-            return ExitSignal(should_exit=True, reason="time_stop")
+
+    # Exit precedence:
+    # 1. market-state exit
+    # 2. stop_hit
+    # 3. early_failure
+    # 4. time_stop
+    #
+    # Early continuation failure.
+    #
+    # Diagnostic checkpoint N includes entry bar through entry_index + N - 1.
+    # _bars_held() reports zero on the entry timestamp bar, so checkpoint N
+    # corresponds exactly to held == N - 1.
+    if (
+        early_failure_config.enabled
+        and position.side == "LONG"
+        and not same_bar_as_entry
+        and held is not None
+        and held
+        == int(early_failure_config.checkpoint_bars) - 1
+    ):
+        initial_stop = position.initial_stop_price
+        anchor = position.trailing_anchor_price
+
+        if initial_stop is not None and anchor is not None:
+            entry_price = float(position.entry_price)
+            initial_risk = (
+                entry_price - float(initial_stop)
+            )
+
+            if initial_risk > 0.0:
+                mfe_price = max(
+                    float(anchor) - entry_price,
+                    0.0,
+                )
+                mfe_r = mfe_price / initial_risk
+
+                if (
+                    math.isfinite(mfe_r)
+                    and mfe_r
+                    < float(
+                        early_failure_config.mfe_threshold_r
+                    )
+                ):
+                    return ExitSignal(
+                        should_exit=True,
+                        reason="early_failure",
+                    )
+
+    # Time stop
+    if held is not None and held >= int(MAX_HOLD_BARS):
+        return ExitSignal(should_exit=True, reason="time_stop")
 
     return ExitSignal(should_exit=False, reason=None)
 

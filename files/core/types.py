@@ -40,6 +40,10 @@ class Position:
     entry_ts_ms: Optional[int]
     stop_price: Optional[float] = None
 
+    # Immutable entry-risk reference. Unlike stop_price, this value must
+    # never change when the trailing stop ratchets.
+    initial_stop_price: Optional[float] = None
+
     # v2 trailing stop state:
     # - LONG: highest favorable price since entry (bar high)
     # - SHORT: lowest favorable price since entry (bar low)

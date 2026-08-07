@@ -730,17 +730,20 @@ def main() -> None:
                 if degraded_mode:
                     decision_row["entry_blocked_reason"] = f"DEGRADED_BLOCK({degraded_why})"
                 else:
+                    initial_stop_price = compute_initial_stop(
+                        side=effective_entry_sig.side,
+                        entry_price=latest_close,
+                        atr=latest_atr,
+                    )
+
                     blocked_reason = broker.open_position(
                         symbol=ccxt_symbol,
                         side=effective_entry_sig.side,
                         size=float(size),
                         entry_price=float(latest_close),
                         entry_ts_ms=int(now_ts_ms + step_ms),
-                        stop_price=compute_initial_stop(
-                            side=effective_entry_sig.side,
-                            entry_price=latest_close,
-                            atr=latest_atr,
-                        ),
+                        stop_price=initial_stop_price,
+                        initial_stop_price=initial_stop_price,
                         trailing_anchor_price=(latest_high if effective_entry_sig.side == "LONG" else latest_low),
                     )
                     if blocked_reason:

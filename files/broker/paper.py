@@ -181,6 +181,7 @@ class PaperBroker:
             entry_price=float(pos.entry_price),
             entry_ts_ms=int(pos.entry_ts_ms) if pos.entry_ts_ms is not None else None,
             stop_price=float(ns),
+            initial_stop_price=pos.initial_stop_price,
             trailing_anchor_price=anchor,
         )
         self._tracked[symbol] = updated
@@ -238,6 +239,7 @@ class PaperBroker:
         entry_price: float,
         entry_ts_ms: int,
         stop_price: Optional[float] = None,
+        initial_stop_price: Optional[float] = None,
         trailing_anchor_price: Optional[float] = None,
         **kwargs,
     ) -> None:
@@ -260,6 +262,12 @@ class PaperBroker:
             )
             return
 
+        resolved_initial_stop = (
+            stop_price
+            if initial_stop_price is None
+            else initial_stop_price
+        )
+
         pos = Position(
             symbol=symbol,
             qty=float(size),
@@ -267,6 +275,7 @@ class PaperBroker:
             entry_price=float(entry_price),
             entry_ts_ms=int(entry_ts_ms),
             stop_price=stop_price,
+            initial_stop_price=resolved_initial_stop,
             trailing_anchor_price=trailing_anchor_price,
         )
         self._tracked[symbol] = pos

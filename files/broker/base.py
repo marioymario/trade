@@ -45,6 +45,7 @@ class Broker(Protocol):
         entry_price: float,
         entry_ts_ms: int,
         stop_price: Optional[float] = None,
+        initial_stop_price: Optional[float] = None,
         trailing_anchor_price: Optional[float] = None,
         **kwargs,
     ) -> None:

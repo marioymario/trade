@@ -342,6 +342,7 @@ class GuardedBroker:
         entry_price: float,
         entry_ts_ms: int,
         stop_price: Optional[float] = None,
+        initial_stop_price: Optional[float] = None,
         trailing_anchor_price: Optional[float] = None,
         **kwargs,
     ) -> Optional[str]:
@@ -371,6 +372,7 @@ class GuardedBroker:
             entry_price=entry_price,
             entry_ts_ms=entry_ts_ms,
             stop_price=stop_price,
+            initial_stop_price=initial_stop_price,
             trailing_anchor_price=trailing_anchor_price,
             **kwargs,
         )

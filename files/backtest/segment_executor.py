@@ -7,6 +7,10 @@ from files.backtest.replay import ReplaySegment
 from files.broker.paper import PaperBroker
 from files.config import TradingConfig
 from files.core.types import Position
+from files.strategy.rules import (
+    EARLY_FAILURE_DISABLED,
+    EarlyFailureConfig,
+)
 
 
 DecisionWriter = Callable[[dict], str | None]
@@ -57,6 +61,10 @@ class SegmentExecutionRequest:
     expected_step_s: int
 
     writers: SegmentWriterContext
+
+    early_failure_config: EarlyFailureConfig = (
+        EARLY_FAILURE_DISABLED
+    )
 
 
 @dataclass(frozen=True)
@@ -399,6 +407,9 @@ def execute_backtest_segment(
                 expected_step_s=int(
                     request.expected_step_s
                 ),
+                early_failure_config=(
+                    request.early_failure_config
+                ),
             )
 
             decision_row["exit_should_exit"] = bool(
@@ -652,6 +663,7 @@ def execute_backtest_segment(
                             entry_price=latest_close,
                             entry_ts_ms=entry_ts_ms,
                             stop_price=stop_price,
+                            initial_stop_price=stop_price,
                             trailing_anchor_price=(
                                 latest_high
                                 if entry_signal.side == "LONG"
