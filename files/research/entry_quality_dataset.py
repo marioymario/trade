@@ -361,9 +361,10 @@ def _bar_return(
     *,
     start_index: int,
     end_index: int,
+    segment_start_index: int,
 ) -> float | None:
     if (
-        start_index < 0
+        start_index < segment_start_index
         or end_index <= start_index
     ):
         return None
@@ -553,12 +554,14 @@ def _structural_features(
         bars,
         start_index=signal_index - 3,
         end_index=signal_index,
+        segment_start_index=segment_start_index,
     )
 
     preceding_3_return = _bar_return(
         bars,
         start_index=signal_index - 6,
         end_index=signal_index - 3,
+        segment_start_index=segment_start_index,
     )
 
     momentum_acceleration = None
