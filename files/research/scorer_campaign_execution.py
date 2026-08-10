@@ -267,6 +267,7 @@ def run_campaign_execution(
             trial=trial,
             runid=execution.run_id,
             trading_config=execution_config,
+            scorer_contract=specification.scorer_contract,
             start_ts_ms=execution.start_ts_ms,
             end_ts_ms=(
                 execution.inclusive_backtest_end_ts_ms

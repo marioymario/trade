@@ -7,7 +7,11 @@ from typing import Any, Iterator
 from files.backtest.engine import BacktestResult, run_backtest
 from files.backtest.replay import ReplayPlan
 from files.config import TradingConfig
-from files.models.entry_model import EntryModel, EntryModelConfig
+from files.models.entry_model import (
+    EntryModel,
+    EntryModelConfig,
+    SCORER_CONTRACT_V2,
+)
 from files.research.scorer_parameter_space import ScorerTrial
 from files.research.scorer_search_config import FIXED_SETTINGS
 import files.strategy.rules as strategy_rules
@@ -29,6 +33,7 @@ class TrialRunRequest:
     runid: str
     trading_config: TradingConfig
 
+    scorer_contract: str = SCORER_CONTRACT_V2
     start_ts_ms: int | None = None
     end_ts_ms: int | None = None
     replay_plan: ReplayPlan | None = None
@@ -43,6 +48,7 @@ class TrialRunResult:
     trial_id: str
     runid: str
 
+    scorer_contract: str
     scorer_config: dict[str, float]
     confidence_enter: float
 
@@ -55,6 +61,7 @@ class TrialRunResult:
         return {
             "trial_id": self.trial_id,
             "runid": self.runid,
+            "scorer_contract": self.scorer_contract,
             "scorer_config": dict(self.scorer_config),
             "confidence_enter": self.confidence_enter,
             "start_ts_ms": self.start_ts_ms,
@@ -191,6 +198,7 @@ def temporary_scorer_configuration(
     *,
     scorer_config: EntryModelConfig,
     confidence_enter: float,
+    scorer_contract: str,
 ) -> Iterator[None]:
     original_model = strategy_rules._model
     original_confidence_enter = (
@@ -199,7 +207,8 @@ def temporary_scorer_configuration(
 
     try:
         strategy_rules._model = EntryModel(
-            cfg=scorer_config
+            cfg=scorer_config,
+            scorer_contract=scorer_contract,
         )
 
         strategy_rules.CONFIDENCE_ENTER = float(
@@ -233,6 +242,7 @@ def run_single_trial(
     with temporary_scorer_configuration(
         scorer_config=scorer_config,
         confidence_enter=confidence_enter,
+        scorer_contract=request.scorer_contract,
     ):
         backtest_result = run_backtest(
             runid=request.runid,
@@ -248,6 +258,7 @@ def run_single_trial(
     return TrialRunResult(
         trial_id=request.trial.trial_id,
         runid=request.runid,
+        scorer_contract=request.scorer_contract,
         scorer_config={
             key: float(value)
             for key, value in asdict(

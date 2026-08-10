@@ -11,7 +11,10 @@ from typing import Any, Iterable, Mapping, Sequence
 import pandas as pd
 
 from files.data.features import compute_features
-from files.models.entry_model import EntryModel
+from files.models.entry_model import (
+    EntryModel,
+    SCORER_CONTRACT_V2,
+)
 from files.research.historical_dataset import (
     load_and_resolve_historical_research_source,
 )
@@ -1808,10 +1811,30 @@ def build_entry_progress_diagnostic(
     scorer_config = scorer_config_from_parameters(
         parameters
     )
+
+    specification = campaign_manifest.get(
+        "specification",
+        {},
+    )
+    if not isinstance(specification, Mapping):
+        raise EntryProgressDiagnosticError(
+            "Campaign specification must be an object."
+        )
+
+    scorer_contract = str(
+        specification.get(
+            "scorer_contract",
+            SCORER_CONTRACT_V2,
+        )
+    ).strip()
+
     confidence_enter = (
         confidence_enter_from_parameters(parameters)
     )
-    model = EntryModel(cfg=scorer_config)
+    model = EntryModel(
+        cfg=scorer_config,
+        scorer_contract=scorer_contract,
+    )
 
     data_tag = str(
         _find_first_key(

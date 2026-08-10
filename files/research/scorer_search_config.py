@@ -94,9 +94,9 @@ PARAMETER_RANGES: dict[str, RangeSpec] = {
         step=0.00025,
     ),
     "ema_slow_slope_full_scale": RangeSpec(
-        minimum=15.0,
-        maximum=60.0,
-        step=5.0,
+        minimum=0.0005,
+        maximum=0.0015,
+        step=0.0001,
     ),
     "ret_1_full_scale": RangeSpec(
         minimum=0.0020,
@@ -139,9 +139,9 @@ PARAMETER_RANGES: dict[str, RangeSpec] = {
         step=0.05,
     ),
     "slope_contradiction_full_scale": RangeSpec(
-        minimum=15.0,
-        maximum=50.0,
-        step=5.0,
+        minimum=0.0005,
+        maximum=0.0015,
+        step=0.0001,
     ),
     "slope_contradiction_penalty_max": RangeSpec(
         minimum=0.15,

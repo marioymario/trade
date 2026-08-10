@@ -6,6 +6,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from files.config import load_trading_config
+from files.models.entry_model import SCORER_CONTRACT_V3
 from files.research.scorer_parameter_space import generate_trials
 from files.research.scorer_trial import TrialRunRequest, run_single_trial
 
@@ -95,6 +96,7 @@ def main() -> None:
             trial=trial,
             runid=runid,
             trading_config=load_trading_config(),
+            scorer_contract=SCORER_CONTRACT_V3,
             start_ts_ms=start_ts_ms,
             end_ts_ms=end_ts_ms,
         )

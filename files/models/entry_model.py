@@ -5,6 +5,17 @@ from dataclasses import dataclass
 import pandas as pd
 
 
+SCORER_CONTRACT_V2 = "entry_scorer_v2_absolute_slope"
+SCORER_CONTRACT_V3 = "entry_scorer_v3_normalized_slope"
+
+SUPPORTED_SCORER_CONTRACTS = frozenset(
+    {
+        SCORER_CONTRACT_V2,
+        SCORER_CONTRACT_V3,
+    }
+)
+
+
 @dataclass(frozen=True)
 class EntryModelConfig:
     # v2: continuation evidence carries most of the score.
@@ -89,8 +100,22 @@ class EntryModel:
     - RSI confirms a setup but cannot rescue weak continuation
     """
 
-    def __init__(self, cfg: EntryModelConfig | None = None) -> None:
+    def __init__(
+        self,
+        cfg: EntryModelConfig | None = None,
+        *,
+        scorer_contract: str = SCORER_CONTRACT_V2,
+    ) -> None:
+        contract = str(scorer_contract).strip()
+
+        if contract not in SUPPORTED_SCORER_CONTRACTS:
+            raise ValueError(
+                "Unsupported scorer contract: "
+                f"{scorer_contract!r}"
+            )
+
         self.cfg = cfg or EntryModelConfig()
+        self.scorer_contract = contract
 
     def _directional_value(self, *, side: str, value: float) -> float:
         normalized_side = side.upper().strip()
@@ -284,10 +309,19 @@ class EntryModel:
             row.get("ema_spread", 0.0),
             0.0,
         )
-        ema_slow_slope = _safe_float(
+        legacy_ema_slow_slope = _safe_float(
             row.get("ema_slow_slope", 0.0),
             0.0,
         )
+        normalized_ema_slow_slope = _safe_float(
+            row.get("ema_slow_slope_pct", 0.0),
+            0.0,
+        )
+
+        if self.scorer_contract == SCORER_CONTRACT_V3:
+            ema_slow_slope = normalized_ema_slow_slope
+        else:
+            ema_slow_slope = legacy_ema_slow_slope
         ret_1 = _safe_float(
             row.get("ret_1", 0.0),
             0.0,
@@ -349,7 +383,9 @@ class EntryModel:
             "return_contradiction_penalty": return_contradiction_penalty,
             "confirmation_multiplier": confirmation_multiplier,
             "ema_spread": ema_spread,
-            "ema_slow_slope": ema_slow_slope,
+            "ema_slow_slope": legacy_ema_slow_slope,
+            "ema_slow_slope_pct": normalized_ema_slow_slope,
+            "scorer_slope_input": ema_slow_slope,
             "ret_1": ret_1,
             "rsi": rsi,
             "atr_pct": atr_pct,

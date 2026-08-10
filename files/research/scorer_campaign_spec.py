@@ -11,6 +11,10 @@ from typing import Any, Sequence
 from files.research.scorer_campaign_io import (
     canonical_json_text,
 )
+from files.models.entry_model import (
+    SCORER_CONTRACT_V3,
+    SUPPORTED_SCORER_CONTRACTS,
+)
 from files.research.scorer_parameter_space import (
     ScorerTrial,
 )
@@ -21,8 +25,8 @@ from files.research.scorer_search_config import (
 )
 
 
-CAMPAIGN_SCHEMA_VERSION = 5
-TRIAL_SPACE_VERSION = "scorer_parameter_space_v1"
+CAMPAIGN_SCHEMA_VERSION = 6
+TRIAL_SPACE_VERSION = "scorer_parameter_space_v2_normalized_slope"
 EXECUTION_ARTIFACT_CONTRACT_VERSION = (
     "scorer_execution_artifacts_v2"
 )
@@ -194,6 +198,7 @@ class CampaignSpecification:
     data_tag: str
     symbol: str
     timeframe: str
+    scorer_contract: str
 
     trial_count: int
     random_seed: int
@@ -229,12 +234,19 @@ class CampaignSpecification:
             ("data_tag", self.data_tag),
             ("symbol", self.symbol),
             ("timeframe", self.timeframe),
+            ("scorer_contract", self.scorer_contract),
             ("trial_space_version", self.trial_space_version),
         ):
             if not str(value).strip():
                 raise CampaignSpecificationError(
                     f"{name} must be non-empty."
                 )
+
+        if self.scorer_contract not in SUPPORTED_SCORER_CONTRACTS:
+            raise CampaignSpecificationError(
+                "Unsupported scorer_contract: "
+                f"{self.scorer_contract!r}"
+            )
 
         if int(self.trial_count) <= 0:
             raise CampaignSpecificationError(
@@ -301,6 +313,7 @@ class CampaignSpecification:
             "data_tag": self.data_tag,
             "symbol": self.symbol,
             "timeframe": self.timeframe,
+            "scorer_contract": self.scorer_contract,
             "trial_space_version": (
                 self.trial_space_version
             ),
@@ -514,6 +527,7 @@ def default_campaign_specification(
         data_tag=data_tag,
         symbol=symbol,
         timeframe=timeframe,
+        scorer_contract=SCORER_CONTRACT_V3,
         trial_count=(
             SEARCH_CONTROLS.trial_count
             if trial_count is None
