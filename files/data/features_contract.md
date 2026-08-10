@@ -25,6 +25,12 @@ Rows must be sorted ascending by timestamp (the pipeline will sort defensively).
 - ema_slow: EMA(close, 26)
 - ema_spread: (ema_fast - ema_slow) / ema_slow
 - ema_slow_slope: ema_slow[t] - ema_slow[t-1]
+  - legacy absolute-price slope retained for scorer-v2 reproducibility
+  - asset-price-scale dependent; not suitable as a cross-asset normalized measure
+- ema_slow_slope_pct: (ema_slow[t] - ema_slow[t-1]) / ema_slow[t-1]
+  - dimensionless normalized EMA slope
+  - first computed row is NaN because a previous EMA value is required
+  - uses only current and prior closed-bar values; introduces no lookahead
 
 ### Volatility / risk
 - atr: ATR(14) using EWMA smoothing

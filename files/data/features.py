@@ -79,7 +79,14 @@ def compute_features(market_data: pd.DataFrame, cfg: FeatureConfig = DEFAULT_FEA
     df["ema_fast"] = _ema(close, cfg.ema_fast)
     df["ema_slow"] = _ema(close, cfg.ema_slow)
     df["ema_spread"] = (df["ema_fast"] - df["ema_slow"]) / (df["ema_slow"] + 1e-12)
+    # Legacy absolute-price slope retained for scorer-v2 reproducibility.
     df["ema_slow_slope"] = df["ema_slow"].diff()
+
+    # Dimensionless EMA slope for cross-asset scorer research.
+    df["ema_slow_slope_pct"] = (
+        df["ema_slow"].diff()
+        / (df["ema_slow"].shift(1) + 1e-12)
+    )
 
     df["atr"] = _atr(high, low, close, cfg.atr_n)
     df["atr_pct"] = df["atr"] / (close + 1e-12)
@@ -105,6 +112,7 @@ def compute_features(market_data: pd.DataFrame, cfg: FeatureConfig = DEFAULT_FEA
         "open", "high", "low", "close", "volume",
         "ret_1", "logret_1",
         "ema_fast", "ema_slow", "ema_spread", "ema_slow_slope",
+        "ema_slow_slope_pct",
         "atr", "atr_pct",
         "rsi",
         "vol_z", "dollar_vol", "dollar_vol_z",
@@ -157,6 +165,7 @@ def validate_latest_features(feats: pd.DataFrame) -> None:
         "ret_1",
         "logret_1",
         "ema_slow_slope",
+        "ema_slow_slope_pct",
         "rsi",
         "vol_z",
         "dollar_vol",
