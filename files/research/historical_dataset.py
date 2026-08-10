@@ -19,9 +19,15 @@ from files.data.paths import (
 )
 
 
-SUPPORTED_GAP_MANIFEST_SCHEMA_VERSION = 1
+SUPPORTED_GAP_MANIFEST_SCHEMA_VERSIONS = (1, 2)
 CONFIRMED_MANIFEST_STATUS = "confirmed"
 CONFIRMED_GAP_CLASSIFICATION = "confirmed_source_outage"
+CONFIRMED_PARTIAL_1M_GAP_CLASSIFICATION = (
+    "confirmed_timeframe_gap_partial_1m"
+)
+CONFIRMED_1M_PRESENT_GAP_CLASSIFICATION = (
+    "confirmed_timeframe_gap_1m_present"
+)
 
 
 class HistoricalDatasetContractError(RuntimeError):
@@ -197,6 +203,7 @@ def _validate_timestamp_alignment(
 def _parse_gap(
     raw_gap: Any,
     *,
+    schema_version: int,
     index: int,
     dataset_start: pd.Timestamp,
     dataset_end_exclusive: pd.Timestamp,
@@ -261,21 +268,68 @@ def _parse_gap(
     missing_1m_bar_count = _require_int(
         gap.get("missing_1m_bars"),
         name=f"{gap_id}.missing_1m_bars",
-        minimum=1,
+        minimum=0 if schema_version >= 2 else 1,
     )
+
+    duration = end - start
 
     classification = _require_string(
         gap.get("classification"),
         name=f"{gap_id}.classification",
     )
 
-    if classification != CONFIRMED_GAP_CLASSIFICATION:
-        raise HistoricalDatasetContractError(
-            f"{gap_id}: unsupported classification "
-            f"{classification!r}."
+    allowed_classifications = {
+        CONFIRMED_GAP_CLASSIFICATION,
+    }
+
+    if schema_version >= 2:
+        allowed_classifications.update(
+            {
+                CONFIRMED_PARTIAL_1M_GAP_CLASSIFICATION,
+                CONFIRMED_1M_PRESENT_GAP_CLASSIFICATION,
+            }
         )
 
-    duration = end - start
+    if classification not in allowed_classifications:
+        raise HistoricalDatasetContractError(
+            f"{gap_id}: unsupported classification "
+            f"{classification!r} for schema_version "
+            f"{schema_version}."
+        )
+
+    expected_1m_bar_count = int(
+        duration / pd.Timedelta(minutes=1)
+    )
+
+    if classification == CONFIRMED_GAP_CLASSIFICATION:
+        if missing_1m_bar_count != expected_1m_bar_count:
+            raise HistoricalDatasetContractError(
+                f"{gap_id}: confirmed_source_outage requires "
+                "all underlying 1m bars to be missing."
+            )
+
+    if (
+        classification
+        == CONFIRMED_PARTIAL_1M_GAP_CLASSIFICATION
+    ):
+        if not (
+            0 < missing_1m_bar_count < expected_1m_bar_count
+        ):
+            raise HistoricalDatasetContractError(
+                f"{gap_id}: partial-1m classification requires "
+                "some, but not all, underlying 1m bars to be missing."
+            )
+
+    if (
+        classification
+        == CONFIRMED_1M_PRESENT_GAP_CLASSIFICATION
+    ):
+        if missing_1m_bar_count != 0:
+            raise HistoricalDatasetContractError(
+                f"{gap_id}: 1m-present classification requires "
+                "all underlying 1m bars to be present."
+            )
+
     calculated_missing = int(duration // step)
 
     if duration % step != pd.Timedelta(0):
@@ -375,7 +429,7 @@ def load_historical_dataset_manifest(
 
     if (
         schema_version
-        != SUPPORTED_GAP_MANIFEST_SCHEMA_VERSION
+        not in SUPPORTED_GAP_MANIFEST_SCHEMA_VERSIONS
     ):
         raise HistoricalDatasetContractError(
             "Unsupported historical gap manifest schema_version: "
@@ -549,6 +603,7 @@ def load_historical_dataset_manifest(
     gaps = tuple(
         _parse_gap(
             raw_gap,
+            schema_version=schema_version,
             index=index,
             dataset_start=dataset_start,
             dataset_end_exclusive=dataset_end_exclusive,

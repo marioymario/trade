@@ -1,0 +1,359 @@
+{
+  "schema_version": 2,
+  "status": "confirmed",
+  "source_exchange": "coinbase",
+  "symbol": "ETH/USD",
+  "timeframe": "5m",
+  "data_tag": "coinbase_eth_history_2018_20260209",
+  "dataset_start_utc": "2018-01-01T00:00:00Z",
+  "dataset_end_utc_exclusive": "2026-02-09T00:00:00Z",
+  "theoretical_bar_count": 852768,
+  "stored_bar_count": 852321,
+  "missing_bar_count": 447,
+  "duplicate_timestamp_count": 0,
+  "partition_count": 2961,
+  "verification": {
+    "five_minute_feed_checked": true,
+    "one_minute_feed_checked": true,
+    "synthetic_bars_created": false,
+    "cross_exchange_substitution_used": false
+  },
+  "gaps": [
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_001",
+      "start_utc": "2018-02-01T05:00:00Z",
+      "end_utc_exclusive": "2018-02-01T08:05:00Z",
+      "missing_5m_bars": 37,
+      "missing_1m_bars": 185,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_002",
+      "start_utc": "2018-05-10T03:30:00Z",
+      "end_utc_exclusive": "2018-05-10T05:10:00Z",
+      "missing_5m_bars": 20,
+      "missing_1m_bars": 100,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_003",
+      "start_utc": "2018-05-30T03:00:00Z",
+      "end_utc_exclusive": "2018-05-30T04:10:00Z",
+      "missing_5m_bars": 14,
+      "missing_1m_bars": 70,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_004",
+      "start_utc": "2018-06-03T20:35:00Z",
+      "end_utc_exclusive": "2018-06-03T20:45:00Z",
+      "missing_5m_bars": 2,
+      "missing_1m_bars": 10,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_005",
+      "start_utc": "2018-06-04T03:00:00Z",
+      "end_utc_exclusive": "2018-06-04T04:40:00Z",
+      "missing_5m_bars": 20,
+      "missing_1m_bars": 100,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_006",
+      "start_utc": "2018-06-18T03:05:00Z",
+      "end_utc_exclusive": "2018-06-18T03:40:00Z",
+      "missing_5m_bars": 7,
+      "missing_1m_bars": 35,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_007",
+      "start_utc": "2018-10-25T01:05:00Z",
+      "end_utc_exclusive": "2018-10-25T02:00:00Z",
+      "missing_5m_bars": 11,
+      "missing_1m_bars": 55,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_008",
+      "start_utc": "2019-03-03T09:25:00Z",
+      "end_utc_exclusive": "2019-03-03T09:30:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_009",
+      "start_utc": "2019-03-20T08:50:00Z",
+      "end_utc_exclusive": "2019-03-20T08:55:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_010",
+      "start_utc": "2019-03-23T01:00:00Z",
+      "end_utc_exclusive": "2019-03-23T01:40:00Z",
+      "missing_5m_bars": 8,
+      "missing_1m_bars": 40,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_011",
+      "start_utc": "2019-03-23T01:50:00Z",
+      "end_utc_exclusive": "2019-03-23T01:55:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_012",
+      "start_utc": "2019-04-08T18:35:00Z",
+      "end_utc_exclusive": "2019-04-08T18:40:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_013",
+      "start_utc": "2019-04-12T00:40:00Z",
+      "end_utc_exclusive": "2019-04-12T00:45:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_014",
+      "start_utc": "2019-04-12T22:20:00Z",
+      "end_utc_exclusive": "2019-04-12T22:40:00Z",
+      "missing_5m_bars": 4,
+      "missing_1m_bars": 20,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_015",
+      "start_utc": "2019-04-15T18:40:00Z",
+      "end_utc_exclusive": "2019-04-15T18:45:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_016",
+      "start_utc": "2019-05-02T11:25:00Z",
+      "end_utc_exclusive": "2019-05-02T11:30:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 4,
+      "classification": "confirmed_timeframe_gap_partial_1m"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_017",
+      "start_utc": "2019-06-20T14:00:00Z",
+      "end_utc_exclusive": "2019-06-20T16:45:00Z",
+      "missing_5m_bars": 33,
+      "missing_1m_bars": 165,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_018",
+      "start_utc": "2019-12-16T09:00:00Z",
+      "end_utc_exclusive": "2019-12-16T09:05:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_019",
+      "start_utc": "2020-01-30T17:00:00Z",
+      "end_utc_exclusive": "2020-01-30T18:40:00Z",
+      "missing_5m_bars": 20,
+      "missing_1m_bars": 100,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_020",
+      "start_utc": "2020-04-02T01:05:00Z",
+      "end_utc_exclusive": "2020-04-02T01:40:00Z",
+      "missing_5m_bars": 7,
+      "missing_1m_bars": 35,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_021",
+      "start_utc": "2020-07-17T21:15:00Z",
+      "end_utc_exclusive": "2020-07-17T21:50:00Z",
+      "missing_5m_bars": 7,
+      "missing_1m_bars": 35,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_022",
+      "start_utc": "2020-07-24T11:25:00Z",
+      "end_utc_exclusive": "2020-07-24T11:30:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_023",
+      "start_utc": "2020-07-24T11:40:00Z",
+      "end_utc_exclusive": "2020-07-24T11:45:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_024",
+      "start_utc": "2020-07-24T12:25:00Z",
+      "end_utc_exclusive": "2020-07-24T12:40:00Z",
+      "missing_5m_bars": 3,
+      "missing_1m_bars": 14,
+      "classification": "confirmed_timeframe_gap_partial_1m"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_025",
+      "start_utc": "2020-08-08T06:50:00Z",
+      "end_utc_exclusive": "2020-08-08T06:55:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_026",
+      "start_utc": "2020-08-08T07:10:00Z",
+      "end_utc_exclusive": "2020-08-08T07:15:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_027",
+      "start_utc": "2020-08-08T08:00:00Z",
+      "end_utc_exclusive": "2020-08-08T08:05:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_028",
+      "start_utc": "2020-08-08T18:25:00Z",
+      "end_utc_exclusive": "2020-08-08T19:25:00Z",
+      "missing_5m_bars": 12,
+      "missing_1m_bars": 60,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_029",
+      "start_utc": "2020-09-04T22:55:00Z",
+      "end_utc_exclusive": "2020-09-05T00:25:00Z",
+      "missing_5m_bars": 18,
+      "missing_1m_bars": 90,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_030",
+      "start_utc": "2020-10-05T21:25:00Z",
+      "end_utc_exclusive": "2020-10-05T21:50:00Z",
+      "missing_5m_bars": 5,
+      "missing_1m_bars": 25,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_031",
+      "start_utc": "2020-10-20T19:45:00Z",
+      "end_utc_exclusive": "2020-10-20T21:15:00Z",
+      "missing_5m_bars": 18,
+      "missing_1m_bars": 90,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_032",
+      "start_utc": "2020-10-27T23:10:00Z",
+      "end_utc_exclusive": "2020-10-28T00:10:00Z",
+      "missing_5m_bars": 12,
+      "missing_1m_bars": 60,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_033",
+      "start_utc": "2021-05-02T17:55:00Z",
+      "end_utc_exclusive": "2021-05-02T18:00:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_034",
+      "start_utc": "2021-11-24T00:05:00Z",
+      "end_utc_exclusive": "2021-11-24T00:55:00Z",
+      "missing_5m_bars": 10,
+      "missing_1m_bars": 50,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_035",
+      "start_utc": "2022-08-12T11:25:00Z",
+      "end_utc_exclusive": "2022-08-12T11:30:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_036",
+      "start_utc": "2023-03-04T17:05:00Z",
+      "end_utc_exclusive": "2023-03-04T21:35:00Z",
+      "missing_5m_bars": 54,
+      "missing_1m_bars": 270,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_037",
+      "start_utc": "2023-05-19T07:45:00Z",
+      "end_utc_exclusive": "2023-05-19T08:25:00Z",
+      "missing_5m_bars": 8,
+      "missing_1m_bars": 40,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_038",
+      "start_utc": "2023-10-18T17:25:00Z",
+      "end_utc_exclusive": "2023-10-18T17:30:00Z",
+      "missing_5m_bars": 1,
+      "missing_1m_bars": 5,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_039",
+      "start_utc": "2024-05-31T22:15:00Z",
+      "end_utc_exclusive": "2024-05-31T23:15:00Z",
+      "missing_5m_bars": 12,
+      "missing_1m_bars": 60,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_040",
+      "start_utc": "2024-10-26T16:10:00Z",
+      "end_utc_exclusive": "2024-10-26T17:15:00Z",
+      "missing_5m_bars": 13,
+      "missing_1m_bars": 65,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_041",
+      "start_utc": "2025-04-25T07:30:00Z",
+      "end_utc_exclusive": "2025-04-25T08:05:00Z",
+      "missing_5m_bars": 7,
+      "missing_1m_bars": 35,
+      "classification": "confirmed_source_outage"
+    },
+    {
+      "gap_id": "coinbase_ethusd_5m_gap_042",
+      "start_utc": "2025-10-25T15:15:00Z",
+      "end_utc_exclusive": "2025-10-25T21:00:00Z",
+      "missing_5m_bars": 69,
+      "missing_1m_bars": 345,
+      "classification": "confirmed_source_outage"
+    }
+  ]
+}

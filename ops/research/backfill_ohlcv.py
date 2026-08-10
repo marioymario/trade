@@ -7,10 +7,12 @@ from typing import Any
 import pandas as pd
 
 from files.data.historical_backfill import (
+    HistoricalBackfillError,
     HistoricalBackfillRequest,
     build_ccxt_exchange,
     fetch_historical_ohlcv,
     persist_historical_ohlcv,
+    timeframe_to_timedelta,
 )
 
 
@@ -174,6 +176,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    parser.add_argument(
+        "--recover-gaps",
+        action="store_true",
+        help=(
+            "When a bounded chunk fails strict historical validation, "
+            "recursively subdivide it to preserve valid ranges and "
+            "report unresolved source intervals. Strict validation "
+            "remains unchanged."
+        ),
+    )
+
     return parser
 
 
@@ -281,6 +294,7 @@ def main() -> None:
     print(f"page_limit={args.page_limit}")
     print(f"chunk_days={args.chunk_days}")
     print(f"chunk_count={len(chunk_ranges)}")
+    print(f"recover_gaps={args.recover_gaps}")
     print(f"max_page_attempts={args.max_page_attempts}")
     print(
         "initial_backoff_seconds="
@@ -293,6 +307,10 @@ def main() -> None:
         args.ccxt_exchange
     )
 
+    step = timeframe_to_timedelta(
+        args.timeframe
+    )
+
     totals = {
         "pages_fetched": 0,
         "raw_rows_received": 0,
@@ -302,53 +320,117 @@ def main() -> None:
         "validated_rows": 0,
     }
 
-    chunk_summaries: list[dict[str, Any]] = []
+    successful_ranges: list[dict[str, Any]] = []
+    unresolved_ranges: list[dict[str, Any]] = []
 
-    for chunk_number, (
-        chunk_start,
-        chunk_end,
-    ) in enumerate(
-        chunk_ranges,
-        start=1,
-    ):
-        print(
-            f"--- chunk {chunk_number}/{len(chunk_ranges)} "
-            f"[{chunk_start.isoformat()}, "
-            f"{chunk_end.isoformat()}) ---",
-            flush=True,
-        )
-
+    def process_range(
+        *,
+        range_start: pd.Timestamp,
+        range_end: pd.Timestamp,
+        root_chunk_number: int,
+        depth: int = 0,
+    ) -> None:
         request = HistoricalBackfillRequest(
             ccxt_exchange=args.ccxt_exchange,
             data_tag=args.data_tag,
             symbol=args.symbol,
             timeframe=args.timeframe,
-            start_utc=chunk_start,
-            end_utc_exclusive=chunk_end,
+            start_utc=range_start,
+            end_utc_exclusive=range_end,
             page_limit=args.page_limit,
         )
 
-        result = fetch_historical_ohlcv(
-            request=request,
-            exchange=exchange,
-            progress_callback=lambda progress, number=chunk_number: (
-                progress_line(number, progress)
-            ),
-            max_page_attempts=args.max_page_attempts,
-            initial_backoff_seconds=(
-                args.initial_backoff_seconds
-            ),
-        )
+        try:
+            result = fetch_historical_ohlcv(
+                request=request,
+                exchange=exchange,
+                progress_callback=(
+                    lambda progress, number=root_chunk_number: (
+                        progress_line(number, progress)
+                    )
+                ),
+                max_page_attempts=args.max_page_attempts,
+                initial_backoff_seconds=(
+                    args.initial_backoff_seconds
+                ),
+            )
+        except HistoricalBackfillError as exc:
+            duration = range_end - range_start
+
+            recoverable_messages = (
+                "Historical fetch returned no in-window bars",
+                "Historical range does not begin at the requested timestamp",
+                "Historical range does not end at the expected closed bar",
+                "Historical range contains irregular cadence",
+                "Historical row count differs from expectation",
+            )
+
+            is_recoverable_coverage_error = str(exc).startswith(
+                recoverable_messages
+            )
+
+            if (
+                not args.recover_gaps
+                or not is_recoverable_coverage_error
+            ):
+                raise
+
+            if duration <= step:
+                unresolved_ranges.append(
+                    {
+                        "root_chunk_number": root_chunk_number,
+                        "start_utc": range_start.isoformat(),
+                        "end_utc_exclusive": range_end.isoformat(),
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    }
+                )
+                return
+
+            total_steps = int(duration / step)
+            midpoint_steps = total_steps // 2
+
+            if midpoint_steps <= 0:
+                unresolved_ranges.append(
+                    {
+                        "root_chunk_number": root_chunk_number,
+                        "start_utc": range_start.isoformat(),
+                        "end_utc_exclusive": range_end.isoformat(),
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    }
+                )
+                return
+
+            midpoint = (
+                range_start
+                + midpoint_steps * step
+            )
+
+            process_range(
+                range_start=range_start,
+                range_end=midpoint,
+                root_chunk_number=root_chunk_number,
+                depth=depth + 1,
+            )
+
+            process_range(
+                range_start=midpoint,
+                range_end=range_end,
+                root_chunk_number=root_chunk_number,
+                depth=depth + 1,
+            )
+            return
 
         if args.write:
             persist_historical_ohlcv(
                 result
             )
 
-        chunk_summary = {
-            "chunk_number": chunk_number,
-            "start_utc": chunk_start.isoformat(),
-            "end_utc_exclusive": chunk_end.isoformat(),
+        summary = {
+            "root_chunk_number": root_chunk_number,
+            "start_utc": range_start.isoformat(),
+            "end_utc_exclusive": range_end.isoformat(),
             "pages_fetched": result.pages_fetched,
             "raw_rows_received": result.raw_rows_received,
             "out_of_window_rows_filtered": (
@@ -372,26 +454,67 @@ def main() -> None:
             "persisted": bool(args.write),
         }
 
-        chunk_summaries.append(
-            chunk_summary
+        successful_ranges.append(
+            summary
         )
 
         for field in totals:
             totals[field] += int(
-                chunk_summary[field]
+                summary[field]
             )
 
+    for chunk_number, (
+        chunk_start,
+        chunk_end,
+    ) in enumerate(
+        chunk_ranges,
+        start=1,
+    ):
         print(
-            json.dumps(
-                chunk_summary,
-                indent=2,
-                sort_keys=True,
-            ),
+            f"--- chunk {chunk_number}/{len(chunk_ranges)} "
+            f"[{chunk_start.isoformat()}, "
+            f"{chunk_end.isoformat()}) ---",
             flush=True,
         )
 
+        process_range(
+            range_start=chunk_start,
+            range_end=chunk_end,
+            root_chunk_number=chunk_number,
+        )
+
+    merged_unresolved: list[dict[str, Any]] = []
+
+    for item in sorted(
+        unresolved_ranges,
+        key=lambda value: value["start_utc"],
+    ):
+        if (
+            merged_unresolved
+            and merged_unresolved[-1]["end_utc_exclusive"]
+            == item["start_utc"]
+        ):
+            merged_unresolved[-1]["end_utc_exclusive"] = (
+                item["end_utc_exclusive"]
+            )
+            merged_unresolved[-1]["interval_count"] += 1
+        else:
+            merged_unresolved.append(
+                {
+                    "start_utc": item["start_utc"],
+                    "end_utc_exclusive": (
+                        item["end_utc_exclusive"]
+                    ),
+                    "interval_count": 1,
+                }
+            )
+
     summary = {
-        "status": "ok",
+        "status": (
+            "completed_with_unresolved_intervals"
+            if merged_unresolved
+            else "ok"
+        ),
         "mode": "write" if args.write else "dry-run",
         "ccxt_exchange": args.ccxt_exchange,
         "data_tag": args.data_tag,
@@ -403,9 +526,12 @@ def main() -> None:
         ),
         "page_limit": args.page_limit,
         "chunk_days": args.chunk_days,
-        "chunks_completed": len(chunk_summaries),
+        "chunks_requested": len(chunk_ranges),
+        "successful_ranges": len(successful_ranges),
+        "unresolved_ranges": len(merged_unresolved),
         "persisted": bool(args.write),
         **totals,
+        "unresolved_intervals": merged_unresolved,
     }
 
     print()
