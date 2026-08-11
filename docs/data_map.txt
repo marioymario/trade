@@ -1,0 +1,669 @@
+TRADING SYSTEM — DATA MAP
+Current-state operational and research data guide
+Updated: 2026-08-11
+
+PURPOSE
+
+This is the one-stop map for the project's data architecture.
+
+It documents:
+- canonical data locations
+- artifact semantics
+- historical research dataset identity
+- research-universe status
+- storage authority
+- current data mission
+
+Keep this file current and operational.
+Do not use it as a chronological mission archive.
+
+
+======================================================================
+1. AUTHORITATIVE DATA LOCATION
+======================================================================
+
+OLD-BOX canonical data:
+
+/home/kk7wus/Projects/trade/data
+
+LOCAL data:
+
+/home/gto5080/Projects/trade/data
+
+LOCAL is not the authoritative historical-research store.
+
+Historical data, backtests, campaigns, diagnostics and data-dependent
+research execute on OLD-BOX.
+
+Code deployment excludes data/.
+
+Additional OLD-BOX storage:
+
+/mnt/trade_storage
+
+Current canonical data should remain under:
+
+/home/kk7wus/Projects/trade/data
+
+There is no current disk-pressure reason to move it.
+
+
+======================================================================
+2. CANONICAL DATA LAYOUT
+======================================================================
+
+data/
+├── raw/
+│   └── {data_tag}/{symbol_storage}/{timeframe}/date=YYYY-MM-DD/bars.parquet
+│
+├── processed/
+│   ├── decisions/
+│   ├── trades/
+│   ├── reports/
+│   └── research/
+│       ├── scorer_campaigns/
+│       ├── entry_quality/
+│       └── universe_discovery/
+│
+├── cache/
+└── __init__.py
+
+
+Canonical path helpers:
+
+files/data/paths.py
+
+
+IMPORTANT:
+
+The first raw-data path component is a DATA TAG.
+
+It is not necessarily the exchange name.
+
+Example:
+
+data/raw/coinbase_history_2022_20260209/BTC_USD/5m/...
+
+data/raw/coinbase_eth_history_2018_20260209/ETH_USD/5m/...
+
+Future:
+
+data/raw/coinbase_sol_history_2022_20260209/SOL_USD/5m/...
+
+
+Source exchange and data_tag are separate provenance fields.
+
+
+======================================================================
+3. ARTIFACT SEMANTICS
+======================================================================
+
+RAW
+
+Answers:
+What market bars were persisted?
+
+
+HISTORICAL MANIFEST
+
+Answers:
+What exact audited historical dataset do those bars represent?
+
+
+DECISIONS
+
+processed/decisions/
+
+Per-bar strategy/runtime explanation.
+
+Answers:
+What did the system see and decide?
+
+
+TRADES
+
+processed/trades/
+
+Closed-trade ledger.
+
+Answers:
+What complete trade lifecycles actually closed?
+
+
+REPORTS
+
+processed/reports/
+
+Derived analytics.
+
+Not primary runtime truth.
+
+
+RESEARCH
+
+processed/research/
+
+Reproducible campaign, diagnostic, entry-quality, universe and other
+scientific artifacts.
+
+These are not generally disposable.
+
+
+Preferred interpretation order:
+
+runtime:
+decisions → trades → reports
+
+historical data:
+raw → manifest → HistoricalResearchSource audit
+
+research:
+manifest → source fingerprints → trials/candidates → aggregation → conclusion
+
+
+======================================================================
+4. HISTORICAL RESEARCH CONTRACT
+======================================================================
+
+Relevant implementation:
+
+files/research/historical_dataset.py
+files/research/historical_manifest_builder.py
+ops/research/backfill_ohlcv.py
+ops/research/build_historical_gap_manifest.py
+
+
+Historical source identity includes:
+
+- data_tag
+- source exchange
+- symbol
+- timeframe
+- dataset start
+- dataset end exclusive
+- stored bars
+- missing bars
+- physical gaps
+- physical replay segments
+- manifest fingerprint
+
+
+Missing exchange bars are not fabricated.
+
+Historical replay does not cross confirmed physical gaps.
+
+
+Tracked historical manifests:
+
+files/research/contracts/
+
+
+======================================================================
+5. CURRENT CANONICAL HISTORICAL SOURCES
+======================================================================
+
+BTC/USD
+
+data_tag:
+coinbase_history_2022_20260209
+
+source:
+coinbase
+
+timeframe:
+5m
+
+coverage:
+2022-01-01T00:00:00Z
+to
+2026-02-09T00:00:00Z exclusive
+
+stored bars:
+431842
+
+missing bars:
+158
+
+gaps:
+7
+
+physical segments:
+8
+
+manifest fingerprint:
+43b10397ff6b513eb6917266e0cfccb4f866721ec829fff90b60fa907f10478c
+
+status:
+AUDITED / CANONICAL
+
+
+ETH/USD
+
+data_tag:
+coinbase_eth_history_2018_20260209
+
+source:
+coinbase
+
+timeframe:
+5m
+
+coverage:
+2018-01-01T00:00:00Z
+to
+2026-02-09T00:00:00Z exclusive
+
+stored bars:
+852321
+
+missing bars:
+447
+
+gaps:
+42
+
+physical segments:
+43
+
+manifest fingerprint:
+f870466613827e1b7a7062d9428956444f7e48e159394a9aeaf7a5b7349f8314
+
+status:
+AUDITED / CANONICAL
+
+
+======================================================================
+6. PROTECTED TEMPORAL OOS
+======================================================================
+
+Ordinary current research folds end at:
+
+2025-01-01T00:00:00Z
+
+BTC 2025+ remains protected temporal out-of-sample evidence.
+
+Storage availability does not authorize research use.
+
+Do not tune against protected periods.
+
+
+======================================================================
+7. COINBASE USD RESEARCH UNIVERSE V1
+======================================================================
+
+Discovery snapshot:
+
+data/processed/research/universe_discovery/
+coinbase_usd_spot_20260811T185018Z/
+
+
+Current Coinbase inventory:
+
+all products:
+832
+
+USD products:
+482
+
+normal online USD products:
+388
+
+
+Liquidity values were normalized to approximate USD notional using:
+
+base-asset volume × current last price
+
+
+Pre-qualification liquidity contract:
+
+30-day approximate USD notional >= $10,000,000
+
+AND
+
+24-hour approximate USD notional >= $100,000
+
+
+Liquidity-qualified products:
+85
+
+
+Explicit current exclusions:
+
+USDT/USD
+reason:
+stablecoin_or_usd_peg
+
+CBETH/USD
+reason:
+wrapped_or_staked_representation
+
+
+History probe results:
+
+FULL_HISTORY_CANDIDATE:
+29
+
+PARTIAL_HISTORY_CANDIDATE:
+12
+
+NO_PROBED_HISTORY:
+42
+
+EXCLUDED:
+2
+
+
+FULL-HISTORY CANDIDATES:
+
+BTC/USD
+ETH/USD
+SOL/USD
+ZEC/USD
+ADA/USD
+XLM/USD
+LINK/USD
+DOGE/USD
+LTC/USD
+UNI/USD
+AVAX/USD
+AAVE/USD
+BICO/USD
+DOT/USD
+ICP/USD
+FET/USD
+BCH/USD
+ALGO/USD
+CRV/USD
+COTI/USD
+OXT/USD
+FIL/USD
+SHIB/USD
+TRAC/USD
+ATOM/USD
+DASH/USD
+CRO/USD
+QNT/USD
+JASMY/USD
+
+
+Count:
+29
+
+
+FULL_HISTORY_CANDIDATE means boundary probing succeeded.
+
+It does not yet mean the complete requested dataset is audited.
+
+
+======================================================================
+8. RESEARCH UNIVERSE V1 DATA CONTRACT
+======================================================================
+
+Source exchange:
+coinbase
+
+Timeframe:
+5m
+
+Common acquisition interval for new datasets:
+
+2022-01-01T00:00:00Z
+through
+2026-02-09T00:00:00Z exclusive
+
+
+BTC and ETH already exist.
+
+Do not redownload them.
+
+
+Existing identities remain unchanged:
+
+BTC/USD:
+coinbase_history_2022_20260209
+
+ETH/USD:
+coinbase_eth_history_2018_20260209
+
+
+New data-tag convention:
+
+coinbase_{base_lowercase}_history_2022_20260209
+
+
+Examples:
+
+SOL/USD:
+coinbase_sol_history_2022_20260209
+
+ADA/USD:
+coinbase_ada_history_2022_20260209
+
+
+Expected new datasets:
+27
+
+
+======================================================================
+9. BATCH EXECUTION PRINCIPLE
+======================================================================
+
+Research Universe V1 is one data-preparation mission.
+
+Do not process symbols manually one by one.
+
+
+The reusable batch workflow should:
+
+1. load the frozen universe definition
+2. recognize BTC/ETH as already complete
+3. backfill each missing symbol
+4. recover legitimate source gaps
+5. build each historical manifest
+6. validate each source
+7. record fingerprints and audit statistics
+8. record failures without discarding successful work
+9. resume safely
+10. emit one universe-level qualification artifact
+
+
+Batch execution must be:
+
+- deterministic
+- restartable
+- idempotent where practical
+- provenance-preserving
+- failure-aware
+
+
+======================================================================
+10. UNIVERSE-LEVEL QUALIFICATION ARTIFACT
+======================================================================
+
+Planned identity:
+
+research_universe_coinbase_usd_v1
+
+
+For every symbol record:
+
+- symbol
+- data_tag
+- source exchange
+- timeframe
+- requested start
+- requested end exclusive
+- first timestamp
+- last timestamp
+- theoretical bars
+- stored bars
+- missing bars
+- completeness
+- partition count
+- gap count
+- physical segment count
+- manifest schema
+- manifest fingerprint
+- liquidity qualification
+- three-fold support
+- final status
+- failure/rejection reason
+
+
+The universe artifact points to independent source manifests.
+
+It does not replace them.
+
+
+======================================================================
+11. CURRENT RESEARCH STATUS
+======================================================================
+
+Scorer contract:
+
+entry_scorer_v3_normalized_slope
+
+
+Structural Search V1:
+
+controlled candidates:
+800
+
+BTC validation trades:
+123
+
+ETH validation trades:
+167
+
+search-wide permutations:
+10000
+
+best minimum asset/fold rho:
++0.048635
+
+search-wide empirical p:
+0.315868
+
+conclusion:
+
+No convincing transferable structural survivor.
+
+Do not promote the winner.
+
+Next evidence improvement comes from broader cross-asset data, not more
+feature-search complexity on BTC/ETH.
+
+
+======================================================================
+12. SAFE CLEANUP RULE
+======================================================================
+
+The old rule that deleting data/processed/* is broadly safe is OBSOLETE.
+
+processed/research contains provenance-bearing scientific artifacts.
+
+Do not casually delete:
+
+- canonical historical datasets
+- manifests
+- campaign artifacts
+- diagnostics
+- entry-quality datasets
+- universe snapshots
+- universe qualification artifacts
+
+
+Temporary runs may still be removed intentionally.
+
+
+======================================================================
+13. STORAGE
+======================================================================
+
+Observed raw-data storage efficiency:
+
+approximately 54–59 bytes per stored 5-minute bar.
+
+
+Estimated full 2022–2024 history:
+
+approximately 0.017 GiB per symbol.
+
+
+Even 100 comparable symbols require only approximately:
+
+1.66 GiB raw
+
+
+Disk is therefore not the current universe-size constraint.
+
+API acquisition time, evidence quality and market relevance matter more.
+
+
+======================================================================
+14. CURRENT DATA MISSION
+======================================================================
+
+COINBASE USD RESEARCH UNIVERSE V1
+
+
+Complete:
+
+- current product inventory
+- liquidity normalization
+- liquidity pre-qualification
+- history-boundary probing
+- disk-capacity assessment
+- full-history candidate definition
+
+
+Current candidate universe:
+
+29 symbols
+
+
+Already canonical:
+
+BTC/USD
+ETH/USD
+
+
+Next:
+
+build reusable batch historical-universe runner
+
+then:
+
+backfill/audit the 27 missing datasets
+
+then:
+
+produce one universe-level qualification artifact
+
+then:
+
+run scorer-v3 across the qualified universe as one batch
+
+
+======================================================================
+15. MAINTENANCE RULE
+======================================================================
+
+Update this file when:
+
+- canonical data layout changes
+- artifact semantics materially change
+- audited historical datasets are added in a meaningful batch
+- a research universe is frozen/superseded
+- storage authority changes
+- a new canonical research artifact family appears
+
+
+Update in chunks.
+
+Do not append every experiment.
+
+Keep this file concise, current and operational.
+
+
+END OF DATA MAP
