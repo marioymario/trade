@@ -1,0 +1,198 @@
+TRADING RESEARCH MILESTONE
+COINBASE USD RESEARCH UNIVERSE V1
+
+Milestone date:
+2026-08-12
+
+Status:
+COMPLETE AND FROZEN
+
+Universe ID:
+research_universe_coinbase_usd_v1
+
+Universe fingerprint:
+f6f75adb7161a9d051a52c18967ffce0d30bcb38c5911cf958d18c2b5ba0454a
+
+FINAL BUILD RESULT
+
+29 total research symbols
+27 newly acquired and audited
+2 existing canonical datasets reused
+0 failures
+
+Source exchange:
+Coinbase
+
+Market class:
+USD spot
+
+Timeframe:
+5m
+
+Common development research start:
+2022-01-01T00:00:00Z
+
+Acquisition end exclusive:
+2026-02-09T00:00:00Z
+
+Protected development-research end exclusive:
+2025-01-01T00:00:00Z
+
+The 2025+ period is stored and audited but remains excluded from
+ordinary strategy/scorer development unless an explicit later
+out-of-sample decision authorizes its use.
+
+
+FROZEN MEMBERSHIP
+
+01. BTC/USD  coinbase_history_2022_20260209
+02. ETH/USD  coinbase_eth_history_2018_20260209
+03. SOL/USD  coinbase_sol_history_2022_20260209
+04. ZEC/USD  coinbase_zec_history_2022_20260209
+05. ADA/USD  coinbase_ada_history_2022_20260209
+06. XLM/USD  coinbase_xlm_history_2022_20260209
+07. LINK/USD  coinbase_link_history_2022_20260209
+08. DOGE/USD  coinbase_doge_history_2022_20260209
+09. LTC/USD  coinbase_ltc_history_2022_20260209
+10. UNI/USD  coinbase_uni_history_2022_20260209
+11. AVAX/USD  coinbase_avax_history_2022_20260209
+12. AAVE/USD  coinbase_aave_history_2022_20260209
+13. BICO/USD  coinbase_bico_history_2022_20260209
+14. DOT/USD  coinbase_dot_history_2022_20260209
+15. ICP/USD  coinbase_icp_history_2022_20260209
+16. FET/USD  coinbase_fet_history_2022_20260209
+17. BCH/USD  coinbase_bch_history_2022_20260209
+18. ALGO/USD  coinbase_algo_history_2022_20260209
+19. CRV/USD  coinbase_crv_history_2022_20260209
+20. COTI/USD  coinbase_coti_history_2022_20260209
+21. OXT/USD  coinbase_oxt_history_2022_20260209
+22. FIL/USD  coinbase_fil_history_2022_20260209
+23. SHIB/USD  coinbase_shib_history_2022_20260209
+24. TRAC/USD  coinbase_trac_history_2022_20260209
+25. ATOM/USD  coinbase_atom_history_2022_20260209
+26. DASH/USD  coinbase_dash_history_2022_20260209
+27. CRO/USD  coinbase_cro_history_2022_20260209
+28. QNT/USD  coinbase_qnt_history_2022_20260209
+29. JASMY/USD  coinbase_jasmy_history_2022_20260209
+
+
+AGGREGATE HISTORICAL INVENTORY
+
+Stored 5-minute bars:
+11,988,570
+
+Theoretical missing 5-minute bars:
+960,198
+
+Theoretical total bars across member manifests:
+12,948,768
+
+Recorded historical gap ranges:
+487,216
+
+
+DATA INTEGRITY CONTRACT
+
+Only actual Coinbase source observations are stored.
+
+Synthetic candles are prohibited.
+
+Forward-filled or interpolated OHLCV candles are prohibited.
+
+Cross-exchange historical substitution is prohibited.
+
+Missing source observations remain explicit gaps.
+
+Historical replay must remain gap-aware.
+
+Manifest-backed historical source identity is required.
+
+
+ACQUISITION ARCHITECTURE
+
+Strict complete-history acquisition remains preserved.
+
+Universe V1 uses explicit gap-tolerant available-bar acquisition
+for newly acquired datasets.
+
+The acquisition layer validates and persists available observations.
+
+The canonical historical manifest layer owns authoritative gap
+discovery, grouping, and Coinbase 1-minute verification.
+
+This separation was introduced after sparse ZEC historical data
+demonstrated that recursively trying to force complete 5-minute
+coverage caused pathological API work.
+
+
+CANONICAL SOURCE PRESERVATION
+
+BTC/USD keeps:
+coinbase_history_2022_20260209
+
+ETH/USD keeps:
+coinbase_eth_history_2018_20260209
+
+Existing canonical sources were not renamed merely to conform to
+newer Universe V1 naming conventions.
+
+
+VERSION LOCK
+
+Universe V1 membership is immutable.
+
+The following are frozen:
+
+universe ID
+universe fingerprint
+29-symbol membership
+source exchange
+market class
+5-minute timeframe
+qualification thresholds
+research boundaries
+dataset identities
+manifest identities
+no-synthetic-bar policy
+no-cross-exchange-substitution policy
+manifest-backed source requirement
+gap-aware replay requirement
+
+Material changes require a new universe version rather than a
+silent mutation of Universe V1.
+
+
+RESEARCH INTERPRETATION
+
+Completion of Universe V1 does not prove that the trading strategy
+has an economic edge.
+
+It establishes a much broader audited scientific population for
+testing whether strategy and entry-quality behavior transfers
+across independent markets.
+
+The previous BTC/ETH structural-search result remains rejected and
+is not promoted retroactively.
+
+The next research mission is cross-asset scorer/strategy evaluation
+using this frozen universe while preserving the protected 2025+
+out-of-sample boundary.
+
+
+AUTHORITATIVE MACHINE CONTRACT
+
+files/research/contracts/coinbase_usd_research_universe_v1.json
+
+
+MILESTONE DEFINITION
+
+Coinbase USD Research Universe V1 is COMPLETE.
+
+29/29 candidate datasets are accounted for.
+27/27 new datasets passed manifest audit.
+2/2 existing canonical sources are reused.
+0 build failures remain.
+
+Future research consumes Universe V1 as immutable scientific input.
+
+END OF MILESTONE

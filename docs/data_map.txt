@@ -667,3 +667,59 @@ Keep this file concise, current and operational.
 
 
 END OF DATA MAP
+
+===============================================================================
+COINBASE USD RESEARCH UNIVERSE V1 — COMPLETE 2026-08-12
+===============================================================================
+
+Status:
+FROZEN / COMPLETE
+
+Universe ID:
+research_universe_coinbase_usd_v1
+
+Membership:
+29 Coinbase USD spot symbols
+
+Build result:
+27 newly acquired and audited
+2 existing canonical sources reused
+0 failures
+
+Timeframe:
+5m
+
+Common development-research start:
+2022-01-01T00:00:00Z
+
+Historical acquisition end exclusive:
+2026-02-09T00:00:00Z
+
+Protected development-research end exclusive:
+2025-01-01T00:00:00Z
+
+The 2025+ period remains protected from ordinary scorer/strategy
+development research.
+
+Historical integrity:
+actual source bars only
+no synthetic candles
+no forward-fill/interpolation
+no cross-exchange substitution
+manifest-backed gap accounting
+gap-aware replay
+
+New Universe V1 datasets use explicit gap-tolerant acquisition.
+Strict complete-history acquisition remains preserved separately.
+
+Canonical machine-readable contract:
+files/research/contracts/coinbase_usd_research_universe_v1.json
+(on research/data-universe-expansion until integrated into main)
+
+Milestone:
+docs/milestones/2026-08-12_coinbase_usd_research_universe_v1.txt
+
+Universe V1 is immutable scientific input.
+Material changes require a new universe version.
+
+===============================================================================
