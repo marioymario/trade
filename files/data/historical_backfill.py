@@ -264,12 +264,8 @@ def validate_complete_history(
     frame: pd.DataFrame,
     *,
     request: HistoricalBackfillRequest,
+    allow_gaps: bool = False,
 ) -> int:
-    if frame.empty:
-        raise HistoricalBackfillError(
-            "Historical fetch returned no in-window bars"
-        )
-
     step = timeframe_to_timedelta(
         request.timeframe
     )
@@ -281,6 +277,14 @@ def validate_complete_history(
         )
         / step
     )
+
+    if frame.empty:
+        if allow_gaps:
+            return expected_rows
+
+        raise HistoricalBackfillError(
+            "Historical fetch returned no in-window bars"
+        )
 
     expected_last_timestamp = (
         request.end_utc_exclusive
@@ -310,41 +314,69 @@ def validate_complete_history(
             "Historical timestamps are not monotonic"
         )
 
-    if first_timestamp != request.start_utc:
-        raise HistoricalBackfillError(
-            "Historical range does not begin at the requested "
-            f"timestamp: expected {request.start_utc}, "
-            f"found {first_timestamp}"
+    if allow_gaps:
+        if (
+            first_timestamp < request.start_utc
+            or last_timestamp >= request.end_utc_exclusive
+        ):
+            raise HistoricalBackfillError(
+                "Historical range contains timestamps outside "
+                "the requested interval"
+            )
+
+        offsets = (
+            frame["timestamp"]
+            - request.start_utc
         )
 
-    if last_timestamp != expected_last_timestamp:
-        raise HistoricalBackfillError(
-            "Historical range does not end at the expected "
-            f"closed bar: expected {expected_last_timestamp}, "
-            f"found {last_timestamp}"
+        misaligned = (
+            offsets % step
+        ).ne(
+            pd.Timedelta(0)
         )
 
-    differences = (
-        frame["timestamp"]
-        .diff()
-        .dropna()
-    )
+        if misaligned.any():
+            raise HistoricalBackfillError(
+                "Historical timestamps are not aligned to "
+                "the requested timeframe grid"
+            )
 
-    irregular = differences.loc[
-        differences.ne(step)
-    ]
+    else:
+        if first_timestamp != request.start_utc:
+            raise HistoricalBackfillError(
+                "Historical range does not begin at the requested "
+                f"timestamp: expected {request.start_utc}, "
+                f"found {first_timestamp}"
+            )
 
-    if not irregular.empty:
-        raise HistoricalBackfillError(
-            "Historical range contains irregular cadence: "
-            f"{len(irregular)} interval(s)"
+        if last_timestamp != expected_last_timestamp:
+            raise HistoricalBackfillError(
+                "Historical range does not end at the expected "
+                f"closed bar: expected {expected_last_timestamp}, "
+                f"found {last_timestamp}"
+            )
+
+        differences = (
+            frame["timestamp"]
+            .diff()
+            .dropna()
         )
 
-    if len(frame) != expected_rows:
-        raise HistoricalBackfillError(
-            "Historical row count differs from expectation: "
-            f"{len(frame)}/{expected_rows}"
-        )
+        irregular = differences.loc[
+            differences.ne(step)
+        ]
+
+        if not irregular.empty:
+            raise HistoricalBackfillError(
+                "Historical range contains irregular cadence: "
+                f"{len(irregular)} interval(s)"
+            )
+
+        if len(frame) != expected_rows:
+            raise HistoricalBackfillError(
+                "Historical row count differs from expectation: "
+                f"{len(frame)}/{expected_rows}"
+            )
 
     numeric_columns = [
         "open",
@@ -467,6 +499,7 @@ def fetch_historical_ohlcv(
     ] = None,
     max_page_attempts: int = 5,
     initial_backoff_seconds: float = 2.0,
+    allow_gaps: bool = False,
 ) -> HistoricalBackfillResult:
     exchange = exchange or build_ccxt_exchange(
         request.ccxt_exchange
@@ -530,6 +563,9 @@ def fetch_historical_ohlcv(
         )
 
         if not raw_page:
+            if allow_gaps:
+                break
+
             raise HistoricalBackfillError(
                 "Exchange returned an empty page before the "
                 "requested range was complete: "
@@ -601,6 +637,7 @@ def fetch_historical_ohlcv(
     expected_rows = validate_complete_history(
         frame,
         request=request,
+        allow_gaps=allow_gaps,
     )
 
     out_of_window_rows_filtered = (

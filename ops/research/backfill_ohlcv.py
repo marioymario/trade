@@ -187,6 +187,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    parser.add_argument(
+        "--allow-gaps",
+        action="store_true",
+        help=(
+            "Persist all valid available OHLCV bars without requiring "
+            "complete contiguous coverage. Missing intervals are left "
+            "for the historical manifest audit to identify and verify."
+        ),
+    )
+
     return parser
 
 
@@ -260,6 +270,11 @@ def build_chunk_ranges(
 def main() -> None:
     args = build_parser().parse_args()
 
+    if args.allow_gaps and args.recover_gaps:
+        raise SystemExit(
+            "--allow-gaps and --recover-gaps are mutually exclusive"
+        )
+
     start_utc = parse_utc_timestamp(
         args.start,
         argument_name="--start",
@@ -295,6 +310,7 @@ def main() -> None:
     print(f"chunk_days={args.chunk_days}")
     print(f"chunk_count={len(chunk_ranges)}")
     print(f"recover_gaps={args.recover_gaps}")
+    print(f"allow_gaps={args.allow_gaps}")
     print(f"max_page_attempts={args.max_page_attempts}")
     print(
         "initial_backoff_seconds="
@@ -353,6 +369,7 @@ def main() -> None:
                 initial_backoff_seconds=(
                     args.initial_backoff_seconds
                 ),
+                allow_gaps=args.allow_gaps,
             )
         except HistoricalBackfillError as exc:
             duration = range_end - range_start

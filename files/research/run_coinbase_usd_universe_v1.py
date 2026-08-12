@@ -565,7 +565,7 @@ def main() -> None:
                 str(
                     args.initial_backoff_seconds
                 ),
-                "--recover-gaps",
+                "--allow-gaps",
                 "--write",
             ]
 
