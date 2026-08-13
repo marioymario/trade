@@ -73,19 +73,20 @@ def build_default_campaign_specification(
     )
 
 
-def initialize_scorer_campaign(
+def initialize_scorer_campaign_with_trials(
     *,
     trading_config: TradingConfig,
     git_identity: GitIdentity,
-    trial_count: int | None = None,
-    random_seed: int | None = None,
+    specification: CampaignSpecification,
+    trials: tuple[ScorerTrial, ...],
     write_artifacts: bool = True,
 ) -> InitializedScorerCampaign:
-    specification = build_default_campaign_specification(
-        trading_config=trading_config,
-        trial_count=trial_count,
-        random_seed=random_seed,
-    )
+    if len(trials) != specification.trial_count:
+        raise ValueError(
+            "Explicit trial count does not match campaign specification: "
+            f"trials={len(trials)} "
+            f"specification.trial_count={specification.trial_count}"
+        )
 
     source = load_and_resolve_historical_research_source(
         data_tag=specification.data_tag,
@@ -98,11 +99,6 @@ def initialize_scorer_campaign(
             source=source,
             min_bars=specification.min_bars,
         )
-    )
-
-    trials = generate_trials(
-        trial_count=specification.trial_count,
-        random_seed=specification.random_seed,
     )
 
     manifest_payload = campaign_identity_payload(
@@ -157,4 +153,32 @@ def initialize_scorer_campaign(
         execution_plan=execution_plan,
         artifacts=artifacts,
         manifest_payload=manifest_payload,
+    )
+
+
+def initialize_scorer_campaign(
+    *,
+    trading_config: TradingConfig,
+    git_identity: GitIdentity,
+    trial_count: int | None = None,
+    random_seed: int | None = None,
+    write_artifacts: bool = True,
+) -> InitializedScorerCampaign:
+    specification = build_default_campaign_specification(
+        trading_config=trading_config,
+        trial_count=trial_count,
+        random_seed=random_seed,
+    )
+
+    trials = generate_trials(
+        trial_count=specification.trial_count,
+        random_seed=specification.random_seed,
+    )
+
+    return initialize_scorer_campaign_with_trials(
+        trading_config=trading_config,
+        git_identity=git_identity,
+        specification=specification,
+        trials=trials,
+        write_artifacts=write_artifacts,
     )
