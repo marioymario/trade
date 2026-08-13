@@ -43,6 +43,7 @@ PRIMARY_SYMBOLS: tuple[str, ...] = (
 )
 
 BASELINE_TRIAL_ID = "trial_096291cf0738ff2f"
+RESEARCH_ORDER_NOTIONAL_USD = 100.0
 
 BASELINE_PARAMETERS: dict[str, float] = {
     "atr_pct_full_penalty": 0.00375,
@@ -280,6 +281,9 @@ def initialize_primary_campaigns(
         specification = build_default_campaign_specification(
             trading_config=member_config,
             trial_count=1,
+            research_order_notional_usd=(
+                RESEARCH_ORDER_NOTIONAL_USD
+            ),
         )
 
         campaign = initialize_scorer_campaign_with_trials(
@@ -332,7 +336,10 @@ def main() -> None:
     campaigns = initialize_primary_campaigns()
 
     output: dict[str, Any] = {
-        "baseline_contract": "multi_asset_baseline_v1",
+        "baseline_contract": "multi_asset_baseline_v1_usd_notional",
+        "research_order_notional_usd": (
+            RESEARCH_ORDER_NOTIONAL_USD
+        ),
         "universe_id": EXPECTED_UNIVERSE_ID,
         "universe_fingerprint": EXPECTED_UNIVERSE_FINGERPRINT,
         "population": "PRIMARY_COMPARABLE",

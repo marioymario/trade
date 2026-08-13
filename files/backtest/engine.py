@@ -312,6 +312,7 @@ def run_backtest(
     start_ts_ms: Optional[int] = None,
     end_ts_ms: Optional[int] = None,
     replay_plan: ReplayPlan | None = None,
+    research_order_notional_usd: float | None = None,
     early_failure_config: EarlyFailureConfig = (
         EARLY_FAILURE_DISABLED
     ),
@@ -468,6 +469,9 @@ def run_backtest(
                 broker=broker,
                 ccxt_symbol=ccxt_symbol,
                 expected_step_s=int(expected_step_s),
+                research_order_notional_usd=(
+                    research_order_notional_usd
+                ),
                 writers=SegmentWriterContext(
                     bt_exchange=bt_exchange,
                     storage_symbol=storage_symbol,

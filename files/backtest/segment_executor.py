@@ -62,6 +62,7 @@ class SegmentExecutionRequest:
 
     writers: SegmentWriterContext
 
+    research_order_notional_usd: float | None = None
     early_failure_config: EarlyFailureConfig = (
         EARLY_FAILURE_DISABLED
     )
@@ -608,13 +609,32 @@ def execute_backtest_segment(
                         )
 
                     else:
-                        size = min(
-                            size_position(
-                                signal=entry_signal,
-                                market_state=market_state,
-                            ),
-                            cfg.max_order_size,
-                        )
+                        if (
+                            request.research_order_notional_usd
+                            is not None
+                        ):
+                            notional = float(
+                                request.research_order_notional_usd
+                            )
+
+                            if notional <= 0.0:
+                                raise ValueError(
+                                    "research_order_notional_usd "
+                                    "must be positive when supplied."
+                                )
+
+                            size = (
+                                notional
+                                / max(float(latest_close), 1e-12)
+                            )
+                        else:
+                            size = min(
+                                size_position(
+                                    signal=entry_signal,
+                                    market_state=market_state,
+                                ),
+                                cfg.max_order_size,
+                            )
 
                         if i + 1 < len(bars):
                             next_timestamp = bars.iloc[

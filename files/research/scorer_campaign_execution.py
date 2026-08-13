@@ -273,6 +273,9 @@ def run_campaign_execution(
                 execution.inclusive_backtest_end_ts_ms
             ),
             replay_plan=replay_plan,
+            research_order_notional_usd=(
+                specification.research_order_notional_usd
+            ),
         )
     )
 

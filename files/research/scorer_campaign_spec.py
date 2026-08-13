@@ -212,6 +212,8 @@ class CampaignSpecification:
 
     cost_scenarios: tuple[CostScenario, ...]
 
+    research_order_notional_usd: float | None = None
+
     campaign_schema_version: int = (
         CAMPAIGN_SCHEMA_VERSION
     )
@@ -289,6 +291,15 @@ class CampaignSpecification:
                 "At least one cost scenario is required."
             )
 
+        if (
+            self.research_order_notional_usd is not None
+            and float(self.research_order_notional_usd) <= 0.0
+        ):
+            raise CampaignSpecificationError(
+                "research_order_notional_usd must be positive "
+                "when supplied."
+            )
+
         scenario_ids = [
             scenario.cost_scenario_id
             for scenario in self.cost_scenarios
@@ -305,7 +316,7 @@ class CampaignSpecification:
             )
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "campaign_schema_version": int(
                 self.campaign_schema_version
             ),
@@ -349,6 +360,13 @@ class CampaignSpecification:
                 ranking_policy_definition()
             ),
         }
+
+        if self.research_order_notional_usd is not None:
+            payload["research_order_notional_usd"] = float(
+                self.research_order_notional_usd
+            )
+
+        return payload
 
 
 def load_clean_git_identity() -> GitIdentity:
@@ -519,6 +537,7 @@ def default_campaign_specification(
     slippage_bps: float,
     trial_count: int | None = None,
     random_seed: int | None = None,
+    research_order_notional_usd: float | None = None,
 ) -> CampaignSpecification:
     return CampaignSpecification(
         source_contract=(
@@ -554,5 +573,10 @@ def default_campaign_specification(
                 fee_bps=float(fee_bps),
                 slippage_bps=float(slippage_bps),
             ),
+        ),
+        research_order_notional_usd=(
+            None
+            if research_order_notional_usd is None
+            else float(research_order_notional_usd)
         ),
     )

@@ -58,6 +58,7 @@ def build_default_campaign_specification(
     trading_config: TradingConfig,
     trial_count: int | None = None,
     random_seed: int | None = None,
+    research_order_notional_usd: float | None = None,
 ) -> CampaignSpecification:
     return default_campaign_specification(
         data_tag=trading_config.data_tag,
@@ -70,6 +71,9 @@ def build_default_campaign_specification(
         slippage_bps=trading_config.slippage_bps,
         trial_count=trial_count,
         random_seed=random_seed,
+        research_order_notional_usd=(
+            research_order_notional_usd
+        ),
     )
 
 

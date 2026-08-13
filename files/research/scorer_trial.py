@@ -37,6 +37,7 @@ class TrialRunRequest:
     start_ts_ms: int | None = None
     end_ts_ms: int | None = None
     replay_plan: ReplayPlan | None = None
+    research_order_notional_usd: float | None = None
 
     early_failure_config: EarlyFailureConfig = (
         EARLY_FAILURE_DISABLED
@@ -250,6 +251,9 @@ def run_single_trial(
             start_ts_ms=request.start_ts_ms,
             end_ts_ms=request.end_ts_ms,
             replay_plan=request.replay_plan,
+            research_order_notional_usd=(
+                request.research_order_notional_usd
+            ),
             early_failure_config=(
                 request.early_failure_config
             ),
