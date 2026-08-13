@@ -1,0 +1,184 @@
+TRADING RESEARCH
+UNIVERSE V1 ELIGIBILITY POLICY V1
+
+Date:
+2026-08-12
+
+Universe:
+research_universe_coinbase_usd_v1
+
+Universe fingerprint:
+f6f75adb7161a9d051a52c18967ffce0d30bcb38c5911cf958d18c2b5ba0454a
+
+Policy:
+eligibility_policy_v1
+
+Status:
+VERIFIED ON OLD-BOX
+
+PURPOSE
+
+Universe V1 contains 29 valid audited historical datasets.
+
+Eligibility Policy V1 is a derived research policy. It determines
+which frozen Universe V1 members can participate comparably in the
+existing frozen walk-forward research design.
+
+Universe V1 itself remains unchanged and immutable.
+
+
+POLICY BASIS
+
+MIN_BARS:
+200
+
+PRIMARY_COMPARABLE requires, in every frozen train/validation window:
+
+minimum stored coverage >=
+0.95
+
+minimum structurally eligible coverage >=
+0.90
+
+
+SECONDARY_USABLE requires, in every frozen train/validation window:
+
+minimum stored coverage >=
+0.80
+
+minimum structurally eligible coverage >=
+0.60
+
+
+A market is WINDOW_BOUNDARY_INCOMPATIBLE when a frozen
+train/validation boundary falls inside a confirmed historical gap.
+
+Frozen research boundaries are not shifted to accommodate a symbol.
+
+
+RESULT
+
+PRIMARY_COMPARABLE = 8
+
+BTC/USD
+ETH/USD
+SOL/USD
+ADA/USD
+XLM/USD
+LINK/USD
+DOGE/USD
+LTC/USD
+
+
+SECONDARY_USABLE = 4
+
+DOT/USD
+BCH/USD
+SHIB/USD
+ATOM/USD
+
+
+INSUFFICIENT_COMPARABILITY = 13
+
+ZEC/USD
+UNI/USD
+AVAX/USD
+AAVE/USD
+ICP/USD
+FET/USD
+ALGO/USD
+CRV/USD
+FIL/USD
+DASH/USD
+CRO/USD
+QNT/USD
+JASMY/USD
+
+
+WINDOW_BOUNDARY_INCOMPATIBLE = 4
+
+BICO/USD
+COTI/USD
+OXT/USD
+TRAC/USD
+
+
+RESEARCH INTERPRETATION
+
+Primary comparable research population:
+8 symbols
+
+Expanded usable population:
+12 symbols
+
+The 8-symbol primary population is the cleanest common population
+for cross-asset scorer and strategy discrimination.
+
+The four secondary symbols may be used for robustness checks and
+expanded evidence, but should remain distinguishable from the
+primary population.
+
+Insufficient or boundary-incompatible symbols remain valid members
+of Universe V1. They are excluded only from experiments requiring
+the current common walk-forward contract.
+
+
+IMPORTANT FINDING
+
+Raw historical coverage alone is not sufficient for eligibility.
+
+Some symbols retain high stored-bar coverage but have thousands of
+physical gaps. Repeated gap boundaries require independent warmup
+and substantially reduce structurally eligible observations.
+
+Eligibility therefore uses both:
+
+stored coverage
+and
+structurally eligible coverage
+
+
+HISTORICAL AUDIT FIX VERIFIED
+
+During eligibility analysis, BICO exposed a valid terminal source
+gap ending exactly at dataset_end_utc_exclusive.
+
+Historical dataset auditing was corrected so:
+
+internal gaps still require stored bars on both sides;
+
+a leading gap beginning at dataset_start_utc does not require an
+out-of-contract preceding bar;
+
+a trailing gap ending at dataset_end_utc_exclusive does not require
+an out-of-contract resumed bar;
+
+missing-bar accounting includes leading and trailing gaps.
+
+The corrected behavior was verified against the actual BICO frozen
+manifest on OLD-BOX.
+
+
+NEXT RESEARCH CONTRACT
+
+Primary development research should begin with:
+
+BTC/USD
+ETH/USD
+SOL/USD
+ADA/USD
+XLM/USD
+LINK/USD
+DOGE/USD
+LTC/USD
+
+Secondary robustness expansion:
+
+DOT/USD
+BCH/USD
+SHIB/USD
+ATOM/USD
+
+Protected 2025+ data remains excluded from ordinary development.
+
+END OF POLICY

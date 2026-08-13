@@ -820,18 +820,24 @@ def _validate_gap_adjacency(
         previous_timestamp = gap.start_utc - step
         resumed_timestamp = gap.end_utc_exclusive
 
-        if previous_timestamp not in timestamp_set:
+        if (
+            gap.start_utc > manifest.dataset_start_utc
+            and previous_timestamp not in timestamp_set
+        ):
             raise HistoricalDatasetContractError(
                 f"{gap.gap_id}: expected preceding bar is missing: "
                 f"{previous_timestamp.isoformat()}"
             )
 
-        if resumed_timestamp not in timestamp_set:
+        if (
+            gap.end_utc_exclusive
+            < manifest.dataset_end_utc_exclusive
+            and resumed_timestamp not in timestamp_set
+        ):
             raise HistoricalDatasetContractError(
                 f"{gap.gap_id}: expected resumed bar is missing: "
                 f"{resumed_timestamp.isoformat()}"
             )
-
 
 def audit_historical_dataset(
     *,
@@ -979,6 +985,33 @@ def audit_historical_dataset(
         manifest.dataset_end_utc_exclusive - step
     )
 
+    leading_gap = next(
+        (
+            gap
+            for gap in manifest.gaps
+            if gap.start_utc == manifest.dataset_start_utc
+        ),
+        None,
+    )
+
+    trailing_gap = next(
+        (
+            gap
+            for gap in reversed(manifest.gaps)
+            if (
+                gap.end_utc_exclusive
+                == manifest.dataset_end_utc_exclusive
+            )
+        ),
+        None,
+    )
+
+    if leading_gap is not None:
+        expected_first = leading_gap.end_utc_exclusive
+
+    if trailing_gap is not None:
+        expected_last = trailing_gap.start_utc - step
+
     actual_first = pd.Timestamp(
         timestamps.iloc[0]
     )
@@ -988,35 +1021,32 @@ def audit_historical_dataset(
 
     if actual_first != expected_first:
         raise HistoricalDatasetContractError(
-            "Historical dataset does not begin at the manifest "
-            "dataset_start_utc: "
+            "Historical dataset does not begin at the expected "
+            "first available timestamp: "
             f"actual={actual_first.isoformat()} "
             f"expected={expected_first.isoformat()}"
         )
 
     if actual_last != expected_last:
         raise HistoricalDatasetContractError(
-            "Historical dataset does not end at the final expected "
-            "timestamp: "
+            "Historical dataset does not end at the expected "
+            "last available timestamp: "
             f"actual={actual_last.isoformat()} "
             f"expected={expected_last.isoformat()}"
         )
 
-    observed_missing_count = 0
-    timestamp_values = timestamps.to_numpy()
-
-    if len(timestamp_values) > 1:
-        timestamp_deltas = (
-            timestamps.iloc[1:].reset_index(drop=True)
-            - timestamps.iloc[:-1].reset_index(drop=True)
+    theoretical_bar_count = int(
+        (
+            manifest.dataset_end_utc_exclusive
+            - manifest.dataset_start_utc
         )
+        // step
+    )
 
-        observed_missing_count = int(
-            (
-                timestamp_deltas // step
-                - 1
-            ).sum()
-        )
+    observed_missing_count = (
+        theoretical_bar_count
+        - len(timestamps)
+    )
 
     if observed_missing_count != manifest.missing_bar_count:
         raise HistoricalDatasetContractError(
