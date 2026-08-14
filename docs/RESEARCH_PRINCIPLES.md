@@ -38,6 +38,45 @@ The project prioritizes:
 * resilience across market regimes
 * honest rejection of weak candidates
 
+## Cross-asset economic comparability
+
+Cross-asset research must use comparable economic exposure when absolute
+PnL or other capital-dependent metrics are compared across assets.
+
+A fixed quantity of base asset is not inherently comparable across
+markets.
+
+For example:
+
+* 0.01 BTC may represent hundreds of USD of exposure
+* 0.01 units of a low-priced asset may represent only cents
+
+Therefore a multi-asset campaign intended for economic comparison should
+define an explicit sizing contract such as fixed USD order notional.
+
+The sizing assumption must be:
+
+* explicit
+* serialized into campaign identity when behavior-changing
+* reproducible
+* identical across the assets being compared
+* isolated from live sizing unless deliberately promoted through a
+  separate verified process
+
+If economic exposure is not comparable, raw dollar PnL must not be used
+to rank or compare assets.
+
+Results from unequal-exposure campaigns may still provide valid
+structural evidence such as:
+
+* trade counts
+* fold signs
+* stop and exit behavior
+* within-asset drawdown relationships
+* within-asset consistency
+
+But those results must be labeled accordingly.
+
 ## What counts as evidence
 
 Strong evidence includes:

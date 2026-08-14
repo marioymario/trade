@@ -228,15 +228,16 @@ It produces processed research artifacts but does not currently affect trading b
 
 ## Historical research architecture
 
-## Authoritative historical dataset
+## Authoritative historical datasets
 
-The main historical research dataset is:
+Historical research uses audited manifest-backed datasets rather than one
+implicit global market.
 
-```
-coinbase_history_2022_20260209
-```
+The original canonical BTC control dataset remains:
 
-Contract:
+`coinbase_history_2022_20260209`
+
+Control-dataset contract:
 
 * exchange: Coinbase
 * symbol: BTC/USD
@@ -248,15 +249,51 @@ Contract:
 * confirmed gaps: 7
 * physical segments: 8
 
-Raw storage layout:
+The research layer has expanded to the frozen universe:
 
-```
-data/raw/{data_tag}/{SYMBOL_STORAGE}/{timeframe}/date=YYYY-MM-DD/bars.parquet
-```
+`research_universe_coinbase_usd_v1`
+
+Universe fingerprint:
+
+`f6f75adb7161a9d051a52c18967ffce0d30bcb38c5911cf958d18c2b5ba0454a`
+
+The universe contains 29 audited Coinbase USD spot markets.
+
+The current PRIMARY_COMPARABLE research population is:
+
+* BTC/USD
+* ETH/USD
+* SOL/USD
+* ADA/USD
+* XLM/USD
+* LINK/USD
+* DOGE/USD
+* LTC/USD
+
+Each market retains its own:
+
+* data tag
+* symbol
+* timeframe
+* canonical raw dataset
+* gap manifest
+* manifest fingerprint
+* physical-segment structure
+
+Canonical raw storage layout:
+
+`data/raw/{data_tag}/{SYMBOL_STORAGE}/{timeframe}/date=YYYY-MM-DD/bars.parquet`
+
+A multi-asset research universe does not imply equal historical
+completeness.
+
+Sparse datasets remain sparse and explicit.
 
 No synthetic bars are inserted.
 
-No data from another exchange is substituted.
+No data from another exchange is substituted to conceal source gaps.
+
+Material changes to the frozen universe require a new universe version.
 
 ## Gap manifest
 
@@ -666,44 +703,136 @@ Research modules own:
 
 They must not bypass the authoritative historical data contract.
 
+## Deterministic scorer campaign architecture
+
+The scorer campaign layer is implemented under:
+
+`files/research/`
+
+Important orchestration modules include:
+
+* run_scorer_campaign.py
+* scorer_campaign_builder.py
+* scorer_campaign_execution.py
+* scorer_campaign_runner.py
+* scorer_campaign_spec.py
+* scorer_campaign_plan.py
+* scorer_campaign_artifacts.py
+* scorer_campaign_aggregation.py
+* scorer_trial.py
+* scorer_walk_forward.py
+
+Campaign responsibilities include:
+
+* resolve one audited historical source per campaign process
+* freeze scorer and strategy assumptions
+* generate or accept deterministic trials
+* construct deterministic campaign identity
+* construct deterministic execution identity
+* execute chronological train and validation folds
+* isolate execution artifacts
+* preserve failures
+* resume or reuse validated completed work
+* aggregate fold and candidate results
+* enforce rejection policy
+* rank surviving candidates
+* record Git and historical-source identity
+
+Behavior-changing assumptions that affect results must participate in
+campaign identity.
+
+Campaign machinery must not silently:
+
+* change historical source
+* change fold boundaries
+* change scorer contract
+* change cost assumptions
+* change research sizing semantics
+* reuse artifacts from a semantically different campaign
+
+## Research sizing architecture
+
+Legacy strategy sizing remains preserved by default.
+
+Research execution may explicitly supply:
+
+`research_order_notional_usd`
+
+The research-only execution path is:
+
+CampaignSpecification
+-> scorer campaign execution
+-> TrialRunRequest
+-> run_backtest
+-> SegmentExecutionRequest
+-> entry quantity calculation
+
+When the value is absent:
+
+* existing legacy/default sizing behavior is preserved
+* legacy campaign identity does not serialize the field
+
+When the value is supplied:
+
+* entry quantity is derived from explicit USD notional
+* the value participates in campaign identity
+* capital-dependent cross-asset metrics can be compared under equal
+  economic exposure
+
+The research sizing path does not modify the live sizing function.
+
+Promotion of research sizing behavior into live execution requires a
+separate explicit architecture and verification decision.
+
+
 ## Walk-forward planning
 
-The intended public design for new walk-forward research is:
+Manifest-backed walk-forward planning is implemented.
 
-* load one audited historical research source
+The architecture is:
+
+* resolve one audited HistoricalResearchSource
 * define folds using half-open intervals
 * validate fold boundaries through the historical data layer
-* resolve each fold using existing segmentation machinery
+* resolve each fold through existing physical-segment machinery
 * calculate deterministic fold statistics
+* execute train and validation ranges chronologically
 * preserve frozen legacy campaigns separately
 
-Fold ranges should use:
+The current frozen research folds are:
 
-```
-[start_ts_ms, end_ts_ms_exclusive)
-```
+Fold 1:
 
-This avoids artificial final-bar timestamps such as:
+* train: 2022
+* validate: 2023-H1
 
-```
-23:59:59.999
-```
+Fold 2:
 
-and avoids timeframe-specific configuration such as:
+* train: 2022 through 2023-H1
+* validate: 2023-H2
 
-```
-23:55:00
-```
+Fold 3:
 
-## Planned historical research source contract
+* train: 2022 through 2023
+* validate: 2024
 
-The intended contract is conceptually:
+Fold ranges use:
 
-```
-HistoricalResearchSource
-```
+`[start_ts_ms, end_ts_ms_exclusive)`
 
-It should contain or expose:
+This avoids artificial final-bar timestamps and timeframe-specific
+end-of-window calculations.
+
+The 2025+ period remains protected out-of-sample data and is not part of
+ordinary candidate development.
+
+## Historical research source contract
+
+The implemented public source contract is:
+
+`HistoricalResearchSource`
+
+It contains or exposes:
 
 * HistoricalDatasetAudit
 * physical segment descriptors
@@ -713,21 +842,6 @@ It should contain or expose:
 * timeframe
 * timeframe step
 * dataset start
-* dataset end-exclusive
-* first available timestamp
-* last available timestamp
-* stored bar count
-* gap count
-* physical segment count
-* manifest path
-
-The resolver should use a cost-signaling name such as:
-
-```
-load_and_resolve_historical_research_source
-```
-
-This operation performs real loading and a full audit.
 
 ## Fold statistics
 
@@ -1246,6 +1360,9 @@ The following boundaries should remain explicit:
 * Event-Risk versus trade execution
 * LOCAL editing versus OLD-BOX execution
 * new manifest-backed research versus frozen legacy research
+* research-only sizing versus live sizing
+* individual historical sources versus frozen research-universe membership
+* ordinary validation periods versus protected final out-of-sample data
 
 ## Architecture review rules
 
@@ -1266,35 +1383,59 @@ A proposed architectural change should answer:
 
 The main known limitations include:
 
-* walk-forward planning still needs full public historical-source integration
-* there is not yet a multi-trial campaign runner that reuses one audited source
-* real-exchange execution is not implemented safely enough for meaningful capital
+* real-exchange execution is not implemented safely enough for meaningful
+  capital
 * exchange reconciliation is incomplete
 * partial-fill and cancel-failure handling are not yet proven
-* research result summaries can become more informative
 * formal automated test coverage remains incomplete
+* campaign and research summaries can become more concise and informative
+* automated regression coverage for newer research-only behavior contracts
+  can be expanded
+* cross-asset research does not by itself prove cross-asset strategy
+  robustness
 * profitability remains unproven
+
+The absence of a proven trading edge is a research limitation, not a
+reason to weaken the architecture or evaluation rules.
 
 ## Future architecture direction
 
-Expected future work includes:
+Already-established architecture includes:
 
-1. Public audited historical research-source contract
-2. Manifest-backed half-open fold planning
-3. Deterministic scorer campaign runner
-4. One audited source per campaign process
-5. Versioned campaign manifests
-6. Candidate stability reporting
-7. Cost-stress reporting
-8. Locked final out-of-sample evaluation
-9. Extended forward paper testing
-10. Real-exchange order adapter
-11. Exchange balance and position reconciliation
-12. Partial-fill and retry handling
-13. Live safety and alerting
-14. Tiny-capital operational validation
+* public audited HistoricalResearchSource
+* manifest-backed half-open fold planning
+* deterministic scorer campaigns
+* one audited source reused per campaign process
+* versioned campaign manifests
+* explicit rejection and ranking policy
+* protected out-of-sample boundaries
+* frozen multi-asset research-universe identity
+* research-only equal-notional sizing
 
-Future work should be added only when the preceding owner and caller are clear.
+Future architecture should be driven by evidence rather than by a desire
+to add abstractions.
+
+Potential future needs include:
+
+1. stronger candidate-stability reporting
+2. richer cross-asset aggregation and diagnostics
+3. broader automated regression coverage for research behavior contracts
+4. additional verified strategy/scorer controls when evidence justifies them
+5. extended forward paper validation
+6. stronger operator alerting
+7. real-exchange order adapter
+8. exchange balance and position reconciliation
+9. partial-fill, cancellation, and retry handling
+10. tiny-capital operational validation only after research and execution
+    evidence justify advancement
+
+The exact next research mission is intentionally not owned by this
+document.
+
+Active mission selection belongs in HANDOFF.md.
+
+Future work should be added only when the owner, caller, evidence, and
+verification path are clear.
 
 ## Architectural principle
 

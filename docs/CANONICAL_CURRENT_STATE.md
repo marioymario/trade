@@ -1,772 +1,579 @@
-# CANONICAL CURRENT STATE — MJÖLNIR
+# CANONICAL CURRENT SYSTEM STATE — MJÖLNIR
 
-Date: 2026-07-30
+Last structural review:
+2026-08-13
 
-This document is the authoritative current system state.
+This document describes the durable current state of the trading system.
 
-If an older handoff, archived snapshot, notebook note, or generated
-summary conflicts with this document, this document wins.
+It is authoritative for:
+- machine and environment roles
+- live/paper safety boundaries
+- runtime architecture
+- historical-data architecture
+- research architecture
+- frozen research populations and protected boundaries
+- reproducibility expectations
+- documentation ownership
 
-## 1. Mission
+It does NOT own:
+- the currently running experiment
+- the latest campaign results
+- today's Git commit
+- temporary PID or log state
+- the next research mission
+
+Those belong in the root HANDOFF.md and mission/milestone reports.
+
+If documents disagree:
+
+1. Exact technical contracts and executable code govern their own interfaces.
+2. HANDOFF.md governs the active mission and current repository checkpoint.
+3. This document governs durable current system state.
+4. Research principles govern evidence and evaluation policy.
+5. Archived handoffs and snapshots are historical only.
+
+--------------------------------------------------
+1) MISSION
+--------------------------------------------------
 
 Build a reliable, reproducible, observable paper-trading and research
-system that can discover robust strategy and scorer parameter
-combinations with positive out-of-sample performance and controlled
-risk.
+system capable of discovering strategy and scorer configurations with
+repeatable out-of-sample profitability and controlled risk after
+realistic costs.
 
-The system has two separate operational layers:
+The main unresolved problem is proving a durable trading edge.
 
-1. Runtime and paper-execution layer
-2. Historical research and optimization layer
+The project is not approved for real-money execution.
 
-The system is not ready for real-money execution.
+--------------------------------------------------
+2) OPERATIONAL LAYERS
+--------------------------------------------------
 
-The runtime layer is mature enough to support disciplined research.
-The main unresolved problem is proving a repeatable trading edge.
+The system has two deliberately separated layers:
 
-## 2. Machine roles
+1. Live/paper runtime
+2. Historical research
 
-### LOCAL
+Research work must not casually alter live behavior.
 
-Repository:
+Promotion of research behavior into the runtime requires an explicit,
+separately verified decision.
 
+--------------------------------------------------
+3) MACHINE ROLES
+--------------------------------------------------
+
+LOCAL
+
+Primary repository:
 `/home/gto5080/Projects/trade`
 
-Responsibilities:
+Research worktrees may exist separately, including:
+`/home/gto5080/Projects/trade-entry-quality`
 
-- edit source code
-- manage Git
-- maintain documentation
-- design research workflows
-- deploy code to OLD-BOX
+LOCAL responsibilities:
+- source editing
+- Git
+- documentation
+- lightweight static checks
+- research design
+- deployment preparation
 
-LOCAL is not used for:
-
+LOCAL is not the authoritative environment for:
+- historical-data execution
+- pandas-dependent validation
 - backtests
-- historical data execution
-- data-dependent validation
-- scorer optimization runs
+- scorer campaigns
+- data-dependent research proof
 
-### OLD-BOX
 
-Repository/runtime directory:
+OLD-BOX
 
+Canonical runtime:
 `/home/kk7wus/Projects/trade`
 
-Responsibilities:
+Research staging worktrees may exist separately, including:
+`/home/kk7wus/Projects/trade-entry-quality`
 
+OLD-BOX responsibilities:
 - live paper loop
-- historical market data
-- backtests and scorer research
-- dashboard
-- Jupyter tooling
-- operator controls
-- runtime-owned `.env`
-- runtime-owned `data/`
-- runtime-owned `trade_flags/`
-
-OLD-BOX is operational only. Git is not used there as the deployment
-or source-control mechanism.
-
-## 3. Deployment contract
-
-Canonical LOCAL deployment command:
-
-`OLD_BOX_HOST=kk7wus@old-box OLD_BOX_DIR=/home/kk7wus/Projects/trade ./ops/deploy_oldbox.sh`
-
-Deployment behavior:
-
-- uses rsync
-- does not delete target-only files
-- excludes runtime-owned state
-- deploys source from LOCAL to OLD-BOX
-
-Runtime-owned paths excluded from deployment include:
-
-- top-level `/data/`
-- `.env`
-- `trade_flags/`
-- logs and cache files
-
-The rsync exclusion must use `/data/`, not `data/`.
-
-The leading slash is required so source modules under `files/data/`
-remain deployable.
-
-## 4. Git state and source tracking
-
-Git truth exists on LOCAL and GitHub.
-
-Core source modules now correctly tracked include:
-
-- `files/data/decisions.py`
-- `files/data/paths.py`
-- `files/data/trades.py`
-- `files/data/historical_backfill.py`
-
-A previous `.gitignore` rule used:
-
-`data/`
-
-That incorrectly ignored all directories named `data`, including
-`files/data/`.
-
-The corrected rule is:
-
-`/data/`
-
-This ignores only the repository's top-level runtime-data directory.
-
-## 5. Docker services
-
-Primary `docker-compose.yml` services:
-
-- `trade`
-- `paper`
-- `dashboard`
-
-### trade
-
-Purpose:
-
-- Jupyter
+- historical data
 - backtests
-- research tools
-- historical data operations
-- one-off health and validation commands
+- research campaigns
+- dashboard
+- Jupyter/tooling
+- runtime-owned configuration
+- practical dependency/data-aware verification
 
-Mounted paths include:
+OLD-BOX is operational.
 
-- `./notebooks:/work/notebooks`
-- `./files:/work/files`
-- `./ops:/work/ops`
-- `./data:/work/data`
-- `/home/kk7wus/trade_flags:/home/kk7wus/trade_flags`
+Project source-control truth remains on LOCAL/GitHub.
 
-The `ops` mount was added so research CLIs are directly available
-inside the tooling container.
+--------------------------------------------------
+4) ENGINEERING AND DEPLOYMENT CONTRACT
+--------------------------------------------------
 
-### paper
+Normal behavior-changing workflow:
 
-Purpose:
+ADJUST
+-> DEPLOY DIRTY
+-> VERIFY ON OLD-BOX
+-> FIX / REPEAT
+-> COMMIT / PUSH
+-> CLEAN DEPLOY
+-> AUTHORITATIVE OLD-BOX VERIFY
 
-- closed-bar live paper loop
+Do not commit behavior-changing work before practical OLD-BOX
+verification.
 
-Command:
+Deployment is rsync-based.
 
-`python -m files.main`
+Runtime-owned state must not be overwritten by source deployment,
+including:
+- `.env`
+- historical/runtime `data/`
+- operator flags
+- generated logs
+- caches
 
-Mounted paths include:
+Do not rely on Git inside OLD-BOX as the runtime deployment mechanism.
 
-- `./files:/work/files`
-- `./data:/work/data`
-- `/home/kk7wus/trade_flags:/home/kk7wus/trade_flags`
+Deployed source identity is recorded explicitly by deployment tooling.
 
-The paper service does not require the `ops` mount.
+--------------------------------------------------
+5) LIVE / PAPER SAFETY BOUNDARY
+--------------------------------------------------
 
-### dashboard
-
-Purpose:
-
-- Streamlit operator and research visibility
-
-Port:
-
-`127.0.0.1:8501`
-
-## 6. Active paper runtime
-
-Current paper namespace:
-
-`paper_oldbox_live`
-
-Current verified runtime values:
-
-- `DATA_TAG=paper_oldbox_live`
-- `CCXT_EXCHANGE=coinbase`
-- `SYMBOL=BTC/USD`
-- `TIMEFRAME=5m`
-- `DRY_RUN=1`
-- `ARMED=1`
-
-Current behavior:
-
-- market data fetched every loop
-- raw bars persisted
-- one decision written per closed 5-minute bar
-- repeated loop ticks safely skip already-processed bars
-- runtime remains restart-safe and timestamp-deduplicated
-
-## 7. Paper health state
-
-The correct health command must explicitly use the paper namespace.
-
-Canonical OLD-BOX command:
-
-`DATA_TAG=paper_oldbox_live CCXT_EXCHANGE=coinbase SYMBOL=BTC_USD TIMEFRAME=5m make health`
-
-Latest verified health result:
-
-- healthcheck pass
-- zero bad recent rows
-- zero bad tail rows
-- 249 clean trailing cadence differences
-- raw bars fresh
-- decisions fresh
-- exact live namespace resolved correctly
-
-A health check using `coinbase` as the processed namespace is invalid
-for the active paper runtime and will report missing decisions.
-
-## 8. Operator control plane
-
-Runtime flag directory:
-
-`/home/kk7wus/trade_flags`
-
-Important controls:
-
-- `STOP`
-- `HALT`
-- `ARM`
-- `status.txt`
-
-Semantics:
-
-- `STOP` is the strongest stop condition
-- `HALT` blocks new entries
-- `ARM` permits entries when other safety conditions allow
-- `status.txt` exposes runtime/operator status
-
-Flag-file changes take effect on the next loop iteration and do not
-require a container restart.
-
-## 9. Restart rules
-
-### Bind-mounted code changed
-
-Deploy from LOCAL, then restart only the affected service if runtime
-determinism requires it.
-
-Typical paper restart:
-
-`docker compose restart paper`
-
-### Compose or container-mount change
-
-Recreate only the affected service.
-
-Example for tooling-only changes:
-
-`docker compose up -d --no-deps --force-recreate trade`
-
-### Environment change
-
-Recreate the affected service so Compose resolves the new environment.
-
-### Flag-file change
-
-No restart required.
-
-## 10. Runtime data contracts
-
-Canonical raw-bar layout:
-
-`data/raw/{data_tag}/{SYMBOL_STORAGE}/{timeframe}/date=YYYY-MM-DD/bars.parquet`
-
-Canonical decisions layout:
-
-`data/processed/decisions/{data_tag}/{SYMBOL_STORAGE}/{timeframe}/decisions.csv`
-
-Canonical trades layout:
-
-`data/processed/trades/{data_tag}/{SYMBOL_STORAGE}/{timeframe}/trades.csv`
-
-Canonical manifest-backed research execution-event layout:
-
-`data/processed/reports/{backtest_exchange}/{SYMBOL_STORAGE}/{timeframe}/research_execution_events.csv`
-
-The research execution-event artifact is created only for
-manifest-backed gap-aware runs. Legacy backtests do not create it.
-
-Primary observability truth:
-
-- decisions CSV
-- trades CSV
-- raw Parquet bars
-- mission-specific proof artifacts
-
-Decision semantics preserve the distinction between:
-
-- strategy or signal reason
-- execution or guardrail blocked reason
-
-### Gap-aware historical replay
-
-The manifest-backed historical loader and backtest orchestration are
-implemented for:
-
-- data tag: `coinbase_history_2022_20260209`
-- symbol: `BTC/USD`
-- timeframe: `5m`
-- dataset range:
-  `[2022-01-01T00:00:00Z, 2026-02-09T00:00:00Z)`
-- stored bars: 431,842
-- confirmed gaps: 7
-- physical replay segments: 8
-
-Canonical gap manifest:
-
-`files/research/contracts/coinbase_history_2022_20260209_gaps.json`
-
-Implemented replay rules:
-
-- the complete dataset is audited before range slicing
-- gaps and segments use inclusive-start, exclusive-end intervals
-- features are computed independently inside each physical segment
-- feature warmup never borrows bars across a confirmed gap
-- a segment with insufficient bars remains present but produces no
-  decisions
-- pending final-bar entries are cancelled when no next bar is legally
-  available
-- normal exit logic runs before any gap-boundary forced exit
-- positions still open at a physical gap boundary are closed at the
-  final valid pre-gap close
-- position, trailing, pending-entry, and cooldown state cannot cross a
-  gap
-- cumulative realized PnL and closed-trade totals are preserved across
-  segments
-- requested-range and dataset ends may expose unresolved final position
-  state
-- legacy backtests preserve their previous behavior
-
-Verified complete-run result:
-
-- bars total: 431,842
-- decision rows: 430,446
-- trade rows: 266
-- decision timestamps inside gaps: 0
-- trade entry or exit timestamps inside gaps: 0
-- duplicate decision timestamps: 0
-- full gap-aware contract audit: PASS
-
-Research execution events use a separate strict artifact with these
-event types:
-
-- `segment_boundary_reached`
-- `entry_cancelled`
-- `position_forced_exit`
-
-## 11. Execution and safety state
-
-Confirmed runtime protections include:
-
-- closed-bar processing
-- one decision per closed bar
-- restart-safe decision deduplication
-- next-bar entry modeling
-- explicit STOP, HALT, and ARM controls
-- degraded-mode behavior
-- feature validation
-- cadence monitoring
-- daily and position-risk controls
-- machine-readable blocked reasons
-- trailing-stop state
-- cooldown tracking
-
-The current safety problem is not basic order discipline.
-
-The larger unresolved problem is strategy profitability.
-
-## 12. Current strategy policy
-
-Current live policy:
-
-- LONG enabled
+Current live strategy policy:
+- LONG_ONLY
 - SHORT quarantined
+- Event-Risk disconnected
+- paper-only
 
-SHORT setups remain observable but are explicitly blocked.
+Research code must preserve this boundary unless a future mission
+explicitly changes it.
 
-Expected blocked reason:
+No current research result authorizes real-money execution.
 
-`trend_down_but_short_disabled`
+--------------------------------------------------
+6) LIVE RUNTIME MODEL
+--------------------------------------------------
 
-The quarantine preserves:
+The live loop processes closed bars only.
 
-- SHORT signal visibility
-- strategy observability
-- comparison capability
-- ability to reconsider only after sufficient evidence
+Core invariants include:
+- one decision per processed closed bar
+- monotonic decision timestamps
+- separate decision and trade artifacts
+- restart-safe persisted state
+- explicit operator controls
+- risk and execution guardrails at the broker boundary
 
-SHORT must not be re-enabled without robust evidence.
+The paper broker is local-only and does not represent permission for
+real-money execution.
 
-## 13. Entry-sequence research branch
+Detailed runtime behavior belongs in architecture and operator-specific
+documentation rather than in this state file.
 
-The entry-sequence candidate was:
+--------------------------------------------------
+7) HISTORICAL DATA ARCHITECTURE
+--------------------------------------------------
 
-- `bar_range_atr <= 1.20`
-- four-bar rejected-setup suppression
+Historical research uses audited canonical datasets.
 
-Observed development evidence:
+Canonical raw-data concept:
 
-- 3 independent pass episodes
-- 3 executed trades
-- 3 wins
-- 0 losses
-- net result: positive $22.686719
-- active and profitable in all three development periods
+`data/raw/{data_tag}/{SYMBOL_STORAGE}/{timeframe}/...`
 
-Final decision:
+Each research source records:
+- exchange
+- symbol
+- timeframe
+- data tag
+- dataset bounds
+- manifest identity
+- confirmed gaps
+- physical replay segments
 
-- rejected for insufficient trade count
-- only 3 observed trades
-- minimum evidence requirement was 8 trades
-- validation and out-of-sample periods remain locked
-- no production changes were made
+Missing historical candles are never silently fabricated.
 
-The candidate is frozen and must not be retrospectively retuned using
-the expanded historical dataset.
+The system must not:
+- synthesize missing prices
+- interpolate gaps
+- substitute another exchange
+- treat multi-hour gaps as ordinary returns
+- silently carry indicator state across confirmed gaps
+- silently carry positions across confirmed gaps
 
-## 14. Scorer research framework
+--------------------------------------------------
+8) GAP-AWARE REPLAY
+--------------------------------------------------
 
-Tracked scorer research modules include:
+Manifest-backed historical replay is implemented.
 
-- `files/research/scorer_search_config.py`
-- `files/research/scorer_parameter_space.py`
-- `files/research/scorer_trial.py`
-- `files/research/scorer_metrics.py`
-- `files/research/scorer_walk_forward.py`
-- `files/research/run_single_scorer_trial.py`
-- `files/research/print_walk_forward_splits.py`
+Core rules:
+- requested ranges are chronological
+- ranges are half-open
+- confirmed gaps remain explicit
+- physical segments replay independently
+- indicator warmup does not cross gaps
+- state cannot silently cross gaps
+- pending entries cannot execute where no legal next bar exists
+- positions at physical gap boundaries follow explicit boundary policy
+- manifest-backed research does not silently fall back to legacy replay
 
-Research goals:
+Legacy replay behavior remains preserved where explicitly requested.
 
-- deterministic parameter generation
-- isolated trial outputs
-- chronological evaluation
-- repeatable walk-forward splits
-- risk-aware metrics
-- robust out-of-sample profitability
-- avoidance of in-sample-only optimization
+The detailed historical-source and gap contracts live in code and
+manifest artifacts.
 
-## 15. Historical Coinbase dataset
+--------------------------------------------------
+9) COINBASE USD RESEARCH UNIVERSE V1
+--------------------------------------------------
 
-Historical namespace:
+Universe ID:
 
-`coinbase_history_2022_20260209`
+`research_universe_coinbase_usd_v1`
 
-Storage root:
+Universe fingerprint:
 
-`data/raw/coinbase_history_2022_20260209/BTC_USD/5m`
+`f6f75adb7161a9d051a52c18967ffce0d30bcb38c5911cf958d18c2b5ba0454a`
 
-Coverage:
+Status:
 
-- start inclusive: `2022-01-01T00:00:00Z`
-- end exclusive: `2026-02-09T00:00:00Z`
+FROZEN
 
-Final audit:
+Membership:
+29 Coinbase USD spot markets
 
-- 1,500 daily Parquet partitions
-- 431,842 stored bars
-- 432,000 theoretical bars
-- 158 confirmed missing bars
-- zero duplicate timestamps
-- exact first timestamp
-- exact last timestamp
-- seven cadence gaps
-- full audit passed
+Verification state:
+- 29/29 members verified
+- all deployed manifest hashes matched the frozen contract
+- all canonical raw datasets existed
+- no universe-build failures remained
 
-The historical namespace is isolated from `paper_oldbox_live`.
+Historical completeness varies materially across members.
 
-## 16. Historical backfill implementation
+This is intentional and explicit.
 
-Reusable implementation:
+Sparse datasets are not repaired by inventing candles.
 
-`files/data/historical_backfill.py`
+Material changes to membership or universe semantics require a new
+universe version.
 
-CLI:
+--------------------------------------------------
+10) CURRENT COMPARABLE RESEARCH POPULATION
+--------------------------------------------------
 
-`ops/research/backfill_ohlcv.py`
+PRIMARY_COMPARABLE:
 
-Capabilities:
+- BTC/USD
+- ETH/USD
+- SOL/USD
+- ADA/USD
+- XLM/USD
+- LINK/USD
+- DOGE/USD
+- LTC/USD
 
-- deterministic CCXT pagination
-- inclusive start and exclusive end
-- bounded chunk execution
-- validation before persistence
-- retry with exponential backoff
-- exact range validation
-- duplicate detection
-- cadence validation
-- OHLC relationship validation
-- atomic daily Parquet persistence
-- safe timestamp-deduplicated reruns
-- dry-run by default
-- explicit `--write` requirement
+Secondary population:
 
-Default chunk size:
+- DOT/USD
+- BCH/USD
+- SHIB/USD
+- ATOM/USD
 
-30 days
+Population membership and eligibility policy must not be silently
+changed after results are viewed.
 
-Default page size:
+--------------------------------------------------
+11) CHRONOLOGICAL RESEARCH CONTRACT
+--------------------------------------------------
 
-300 rows
+Current frozen walk-forward structure:
 
-## 17. Confirmed Coinbase source outages
+Fold 1:
+- train 2022
+- validate 2023-H1
 
-Authoritative machine-readable manifest:
+Fold 2:
+- train through 2023-H1
+- validate 2023-H2
 
-`files/research/contracts/coinbase_history_2022_20260209_gaps.json`
+Fold 3:
+- train through 2023
+- validate 2024
 
-Confirmed gaps:
+Ranges are half-open.
 
-1. `2022-08-12T11:25:00Z` to `2022-08-12T11:30:00Z`
-   - 1 missing 5-minute bar
+The 2025+ period remains protected out-of-sample data.
 
-2. `2023-03-04T17:00:00Z` to `2023-03-04T21:35:00Z`
-   - 55 missing 5-minute bars
+Protected OOS must not be inspected during ordinary parameter
+development or candidate selection.
 
-3. `2023-05-19T07:45:00Z` to `2023-05-19T08:25:00Z`
-   - 8 missing 5-minute bars
+--------------------------------------------------
+12) RESEARCH CAMPAIGN ARCHITECTURE
+--------------------------------------------------
 
-4. `2024-05-31T22:20:00Z` to `2024-05-31T23:15:00Z`
-   - 11 missing 5-minute bars
+The deterministic scorer campaign system is implemented.
 
-5. `2024-10-26T16:10:00Z` to `2024-10-26T17:15:00Z`
-   - 13 missing 5-minute bars
+Capabilities include:
+- manifest-backed source enforcement
+- explicit scorer contracts
+- deterministic candidate generation
+- explicit candidate identity
+- deterministic campaign identity
+- chronological walk-forward planning
+- train and validation execution
+- isolated execution artifacts
+- resume/reuse of valid completed work
+- partial-failure preservation
+- aggregation
+- rejection policy
+- ranking policy
+- Git/source identity recording
+- realistic transaction-cost scenarios
 
-6. `2025-10-25T14:55:00Z` to `2025-10-25T15:00:00Z`
-   - 1 missing 5-minute bar
+The historical source is resolved once per campaign process and reused
+rather than repeatedly rediscovered.
 
-7. `2025-10-25T15:15:00Z` to `2025-10-25T21:00:00Z`
-   - 69 missing 5-minute bars
+--------------------------------------------------
+13) CURRENT SCORER RESEARCH CONTRACT
+--------------------------------------------------
 
-Every gap was also checked against Coinbase's 1-minute feed.
+The normalized-slope scorer contract exists for research:
 
-All underlying one-minute candles were absent.
+`entry_scorer_v3_normalized_slope`
 
-No synthetic bars were created.
+The absolute-slope scorer contract remains preserved for legacy/live
+behavior where applicable.
 
-No cross-exchange prices were substituted.
+Research contracts must not silently replace live/default behavior.
 
-## 18. Historical research-use rules
+Candidate and campaign identity must capture every behavior-changing
+research assumption that affects results.
 
-Historical research must not treat the dataset as fully continuous.
+--------------------------------------------------
+14) CROSS-ASSET ECONOMIC COMPARABILITY
+--------------------------------------------------
 
-Required behavior:
+Cross-asset raw dollar PnL is only comparable when economic exposure is
+comparable.
 
-- load the gap manifest
-- segment the dataset at confirmed gaps
-- prevent simulated positions from silently crossing a gap
-- reset or re-warm stateful indicators when appropriate
-- avoid interpreting a multi-hour gap as one normal 5-minute return
-- keep train, validation, and test windows explicit
-- include the data tag and manifest in run artifacts
-- maintain deterministic seeds and versioned configurations
+A fixed quantity of base asset is not sufficient.
 
-A future research loader should expose continuous segments directly.
+The research system therefore supports an explicit optional research
+order-notional contract:
 
-## 19. Event-risk service
+`research_order_notional_usd`
 
-The event-risk service remains separate from live trading.
+When absent:
+- legacy/default sizing behavior is preserved
+- the field is omitted from legacy campaign identity
 
-It is intentionally not wired into the paper loop.
+When supplied:
+- research quantity is derived from the explicit USD exposure
+- the behavior-changing value participates in campaign identity
 
-Canonical outputs:
+This sizing control is research-only.
 
-- `data/processed/event_risk/current.json`
-- `data/processed/event_risk/history.csv`
+It does not alter live sizing unless separately promoted and verified.
 
-The Compose orphan warning for `event_risk` is informational because
-the service is intentionally isolated.
+Detailed evidence and current campaign use belong in HANDOFF.md or a
+milestone report.
 
-Event-risk research may later be tested as an independent filter or
-feature after the technical strategy and scorer have stronger evidence.
+--------------------------------------------------
+15) RESEARCH EVIDENCE POLICY
+--------------------------------------------------
 
-## 20. Documentation model
+The research objective is not maximum in-sample profit.
 
-Current authoritative documents:
+Important evidence includes:
+- out-of-sample profitability
+- worst-fold performance
+- cross-period consistency
+- cross-asset consistency
+- drawdown
+- return-to-drawdown
+- sufficient trade count
+- transaction-cost robustness
+- parameter stability
+- winner concentration
+- reproducibility
 
-- `docs/CANONICAL_CURRENT_STATE.md`
-- `HANDOFF.md`
+One profitable fold, one asset, one large winner, or high aggregate PnL
+does not establish a robust edge.
 
-Historical-backfill mission report:
+Detailed evaluation rules live in:
 
-- `docs/research/historical_backfill_mission_2022_2026.md`
+`docs/RESEARCH_PRINCIPLES.md`
 
-Historical gap manifest:
+--------------------------------------------------
+16) EVENT-RISK BOUNDARY
+--------------------------------------------------
 
-- `files/research/contracts/coinbase_history_2022_20260209_gaps.json`
+Event-Risk remains a separate research/service layer.
 
-Archive documents:
+It is not currently wired into the live trading decision path.
 
-- `docs/ARCHIVE_handoffs.md`
-- `docs/ARCHIVE_project_snapshots.md`
+It may be evaluated in a future controlled research mission.
 
-Current-state documents should contain current truth only.
+Until explicitly changed:
+- no live strategy dependence
+- no hidden Event-Risk filtering
+- no assumption that Event-Risk is active
 
-Superseded detail belongs in archive documents or mission reports.
+--------------------------------------------------
+17) REPRODUCIBILITY CONTRACT
+--------------------------------------------------
 
-## 21. Engineering workflow
+Behavior-changing research must be reproducible from recorded identity.
 
-Current operating contract:
+Relevant identity may include:
+- Git commit
+- branch/deployed identity
+- source data tag
+- manifest fingerprint
+- universe fingerprint
+- population
+- scorer contract
+- trial identity
+- strategy configuration
+- sizing contract
+- fee/slippage assumptions
+- chronological folds
+- rejection/ranking policy versions
+- random seed
+- artifact paths
 
-1. Work one mission at a time.
-2. Inspect actual files and interfaces before editing.
-3. Do not guess function signatures.
-4. Make changes on LOCAL.
-5. Commit and push proven source changes.
-6. Deploy to OLD-BOX using rsync.
-7. Run all data-dependent validation on OLD-BOX.
-8. Restart or recreate only the affected service.
-9. Verify runtime health after relevant deployment changes.
-10. Preserve production behavior unless the mission explicitly changes it.
+Historical artifacts must not be silently overwritten with semantically
+different results.
 
-Preferred command workflow:
+--------------------------------------------------
+18) DOCUMENTATION OWNERSHIP
+--------------------------------------------------
 
-- one command or notebook cell at a time
-- label LOCAL and OLD-BOX clearly
-- wait for output before continuing
-- use complete file replacements when practical
-- avoid temporary architecture expected to be replaced later
+Root:
 
-## 22. Current priorities
+`HANDOFF.md`
 
-In order:
+Owns:
+- active mission
+- exact current branch/commit
+- current running/completed campaign
+- immediate next action
+- transient operational context needed by the next explorer
 
-1. Preserve the completed manifest-backed deterministic scorer campaign
-   infrastructure and its reproducibility contracts.
-2. Treat the completed scorer campaigns as rejected evidence rather than
-   widening scorer-only search immediately.
-3. Build the smallest disabled-by-default engine-level early-failure exit
-   contract suggested by the read-only diagnostics.
-4. Prove exact baseline equivalence when the new behavior is disabled.
-5. Replay a small bounded early-failure policy set through the full backtest
-   engine across the frozen chronological folds.
-6. Evaluate fold profitability, worst-fold behavior, drawdown, transaction
-   costs, trade evidence, winner sacrifice, and neighboring-value stability.
-7. Expose only engine-verified behavior controls to deterministic campaign
-   search.
-8. Expand toward staged multi-behavior optimization without an uncontrolled
-   Cartesian search.
-9. Preserve honest LONG_ONLY paper observation.
-10. Keep SHORT quarantined and Event-Risk isolated.
-11. Keep the locked later out-of-sample period untouched until final candidate
-    confirmation.
-12. Do not move toward real-money execution without robust out-of-sample edge
-    and verified live-execution safety.
 
-## 23. Non-negotiables
+`docs/CANONICAL_CURRENT_STATE.md`
 
-* Do not fabricate missing market data.
-* Do not mix prices from another exchange into the Coinbase dataset.
-* Do not silently backtest across known data gaps.
-* Do not re-enable SHORT without evidence.
-* Do not alter the live strategy while unrelated research is underway.
-* Do not optimize only for in-sample profit.
-* Do not use LOCAL for data-dependent execution.
-* Do not overwrite OLD-BOX runtime-owned `.env` or data.
-* Do not assume successful HTTP responses contain complete historical data.
-* Do not treat a passing backtest as proof without chronological
-  out-of-sample evidence.
-* Do not silently fall back from manifest-backed research to a legacy or
-  live-data path.
-* Do not change locked validation or final test windows after viewing results.
-* Do not treat notebook counterfactuals as engine-level evidence.
-* Do not approve exact thresholds selected from repeated validation inspection
-  without full replay and stability checks.
+Owns:
+- durable current system state
+- architecture-level boundaries
+- frozen populations
+- stable operational/research rules
 
-## 24. Current assessment
+It must not become a campaign diary.
 
-System engineering:
 
-* operationally stable enough for research
-* observable
-* restart-safe
-* guarded
-* reproducible
-* still paper-only
+`docs/ARCHITECTURE.md`
 
-Historical research foundation:
+Owns:
+- components
+- module boundaries
+- data flows
+- runtime and research architecture
+- architectural interfaces
 
-* long-range dataset complete
-* 1,500 daily partitions audited
-* seven confirmed source gaps documented
-* backfill reproducible
-* gap-aware loading complete
-* eight physical replay segments exposed
-* independent post-gap warmup complete
-* boundary-safe entry and exit behavior complete
-* strict research execution-event artifact complete
-* full four-year gap-aware contract audit passed
-* legacy backtest behavior preserved
+It should not contain stale next-mission language.
 
-Walk-forward and campaign research:
 
-* public HistoricalResearchSource contract complete
-* manifest_backed_v1 enforcement complete
-* half-open chronological folds complete
-* exact gap-aware fold planning complete
-* deterministic fold statistics complete
-* deterministic multi-trial scorer campaign runner complete
-* one audited source reused per campaign process
-* campaign identity and Git controls complete
-* isolated artifacts and resume behavior complete
-* aggregation and rejection policies complete
-* single-candidate campaign completed and rejected
-* four-candidate campaign completed with all candidates rejected
+`docs/RESEARCH_PRINCIPLES.md`
 
-Diagnostics:
+Owns:
+- evidence standards
+- chronological/OOS policy
+- reproducibility principles
+- comparison policy
+- research integrity
 
-* stop-behavior diagnostic committed and verified
-* entry and early-progress diagnostic committed and verified
-* diagnostic schema version 2
-* anti-leakage contract verified
-* RVOL segment and prior-window contract verified
-* confidence reconstruction difference exactly 0.0
-* clean committed OLD-BOX run verified at commit
-  `e44ccbafacd4029f389a6ca4ce729ada71436d76`
 
-Strategy state:
+Contract documents
 
-* robust edge not proven
-* SHORT remains quarantined
-* LONG_ONLY remains the live paper baseline
-* scorer-only expansion is not currently justified
-* low bar-3 MFE is an exploratory early-failure signal
-* no early-failure policy is engine-approved
-* no diagnostic threshold is approved for production
+Own:
+- exact subsystem behavior
+- schemas
+- versioned interfaces
+- failure semantics
 
-Research interpretation:
 
-* weak early continuation is a larger issue than simple trailing-stop giveback
-* static checkpoint replacement suggests an early-failure control may help
-* the observed improvement is concentrated largely in 2024
-* all conclusions remain subject to full-engine replay
-* the locked final out-of-sample period remains unused for ordinary selection
+`docs/research/`
 
-## 25. Bottom line
+Owns:
+- research mission reports
+- diagnostics
+- completed hypothesis investigations
 
-The project now has:
 
-* a healthy LONG_ONLY live paper runtime
-* explicit operator controls
-* reliable decision and trade logging
-* an isolated and audited historical Coinbase dataset
-* machine-readable source-gap identity
-* gap-aware historical loading and replay
-* deterministic chronological walk-forward folds
-* a complete deterministic scorer campaign runner
-* reproducible campaign identity and artifact isolation
-* completed bounded scorer campaigns
-* preserved rejected-candidate evidence
-* a committed stop-behavior diagnostic
-* a committed entry and early-progress diagnostic
-* clean OLD-BOX verification from the exact GitHub revision
+`docs/milestones/`
 
-The scorer-only campaign phase did not produce a deployable candidate.
+Owns:
+- immutable completed milestone reports
 
-The next major mission is to implement a minimal disabled-by-default
-early-failure behavior contract, prove baseline equivalence, and test a small
-bounded policy set through the full engine before adding behavior controls to
-larger deterministic campaigns.
+
+`docs/ARCHIVE_handoffs.md`
+`docs/ARCHIVE_project_snapshots.md`
+
+Own:
+- historical context only
+
+Archive content does not define current truth.
+
+--------------------------------------------------
+19) NON-NEGOTIABLES
+--------------------------------------------------
+
+- Do not fabricate missing market data.
+- Do not substitute another exchange to conceal source gaps.
+- Do not silently cross confirmed historical gaps.
+- Do not silently fall back from manifest-backed research.
+- Do not change frozen validation windows after viewing results.
+- Do not inspect protected OOS during ordinary candidate development.
+- Do not treat notebook counterfactuals as engine proof.
+- Do not use LOCAL for authoritative data-dependent execution.
+- Do not overwrite OLD-BOX runtime-owned state during deployment.
+- Do not casually alter live behavior from research work.
+- SHORT remains quarantined.
+- Event-Risk remains disconnected.
+- Research remains paper-only.
+- Historical results remain reproducible.
+- Rejected candidates remain evidence.
+- No real-money execution without robust out-of-sample evidence and
+  separately verified execution safety.
+
+--------------------------------------------------
+20) CURRENT ASSESSMENT
+--------------------------------------------------
+
+The engineering and research infrastructure is substantially more mature
+than the trading edge itself.
+
+Established capabilities include:
+- reliable paper runtime
+- explicit operator controls
+- audited historical datasets
+- gap-aware replay
+- frozen chronological folds
+- deterministic scorer campaigns
+- reproducible campaign identity
+- multi-asset research universe
+- explicit eligibility policy
+- cross-asset comparable research sizing
+
+The unresolved scientific question remains:
+
+Can the strategy/scorer family produce repeatable, risk-controlled,
+out-of-sample profitability across time and assets after realistic costs?
+
+The active experiment addressing the current research phase is documented
+in HANDOFF.md, not here.

@@ -36,12 +36,27 @@ The goal is to improve the truthfulness, safety, reproducibility, and usefulness
 
 Read these first:
 
-* README.md
-* CONTRIBUTING.md
+* HANDOFF.md
 * docs/CANONICAL_CURRENT_STATE.md
-* docs/research/historical_backfill_mission_2022_2026.md
+* docs/ARCHITECTURE.md
+* docs/RESEARCH_PRINCIPLES.md
+* CONTRIBUTING.md
 
-The canonical current-state document takes priority when older notes or handoffs conflict with it.
+Then read only the subsystem contract or research/milestone report relevant
+to the review.
+
+Document ownership matters:
+
+* HANDOFF.md owns the active mission, exact repository checkpoint, and
+  transient run state.
+* docs/CANONICAL_CURRENT_STATE.md owns durable current system state.
+* docs/ARCHITECTURE.md owns technical architecture and module boundaries.
+* docs/RESEARCH_PRINCIPLES.md owns evidence and research-integrity policy.
+* exact subsystem contracts own their versioned interfaces and semantics.
+* archived handoffs and snapshots are historical only.
+
+Do not allow an archived or mission-specific note to override the document
+that owns the relevant current contract.
 
 ## Recommended starting code
 
@@ -77,23 +92,35 @@ For live and paper-runtime behavior, review:
 
 ## Current project state
 
-The engineering foundation is advanced enough for disciplined research.
+The engineering foundation is advanced enough for disciplined multi-asset
+research.
 
-The historical dataset and replay path have been audited across:
+Established capabilities include:
 
-* 431,842 stored bars
-* seven confirmed Coinbase outages
-* eight physical replay segments
-* 430,446 processed decision rows
-* 266 historical trades
+* audited manifest-backed historical datasets
+* explicit physical-gap handling
+* gap-aware replay
+* half-open chronological walk-forward folds
+* deterministic scorer campaigns
+* reproducible campaign and candidate identity
+* frozen Coinbase USD Research Universe V1
+* explicit research eligibility policy
+* a frozen PRIMARY_COMPARABLE population
+* research-only equal-USD-notional sizing for economically comparable
+  cross-asset studies
 
-The full gap-aware historical contract passed.
+The original Coinbase BTC/USD historical dataset remains an important
+canonical control source, but it is no longer the entire research universe.
 
-Profitability is not proven.
+Profitability remains unproven.
 
-The main research question remains:
+The main scientific question remains:
 
-Can any strategy and scorer configuration produce repeatable out-of-sample gains with acceptable risk after realistic costs?
+Can any strategy/scorer configuration produce repeatable out-of-sample gains
+with acceptable risk across time and assets after realistic costs?
+
+The active experiment and immediate next action belong in HANDOFF.md rather
+than in this review guide.
 
 ## Areas already intentionally separated
 

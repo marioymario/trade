@@ -1,0 +1,329 @@
+PRIMARY-8 USD-NORMALIZED BASELINE V1
+
+Date:
+2026-08-14
+
+Status:
+COMPLETE AND AUDITED
+
+Purpose:
+Establish an economically comparable multi-asset baseline across the frozen
+PRIMARY_COMPARABLE population using one frozen scorer/strategy configuration,
+frozen chronological folds, realistic costs, and equal USD order notional.
+
+Repository identity:
+
+Branch:
+research/data-universe-expansion
+
+Git commit:
+6a534b9521addedb668874370f095417be3683f1
+
+Universe:
+
+Universe ID:
+research_universe_coinbase_usd_v1
+
+Universe fingerprint:
+f6f75adb7161a9d051a52c18967ffce0d30bcb38c5911cf958d18c2b5ba0454a
+
+Population:
+PRIMARY_COMPARABLE
+
+Members:
+BTC/USD
+ETH/USD
+SOL/USD
+ADA/USD
+XLM/USD
+LINK/USD
+DOGE/USD
+LTC/USD
+
+Scorer contract:
+entry_scorer_v3_normalized_slope
+
+Frozen trial:
+trial_096291cf0738ff2f
+
+Sizing contract:
+research_order_notional_usd = 100.0
+
+Baseline contract:
+multi_asset_baseline_v1_usd_notional
+
+Frozen validation structure:
+
+Fold 1:
+train 2022
+validate 2023-H1
+
+Fold 2:
+train through 2023-H1
+validate 2023-H2
+
+Fold 3:
+train through 2023
+validate 2024
+
+2025+:
+PROTECTED AND UNTOUCHED
+
+Execution audit:
+
+Campaigns completed:
+8/8
+
+Backtests completed:
+48/48
+
+Failure rows:
+0
+
+Artifact audit:
+PASS
+
+RESULTS
+
+BTC/USD
+Campaign:
+scorer_campaign_917be2805ed4291c
+Disposition:
+ELIGIBLE
+Total validation PnL:
++3.351793603110794 USD
+Worst validation fold:
++0.6354935014137432 USD
+Positive validation folds:
+3/3
+Validation trades:
+123
+Validation return-to-drawdown:
+0.5420428901185574
+Validation PnL concentration:
+0.45481933852137013
+Rejections:
+NONE
+
+ETH/USD
+Campaign:
+scorer_campaign_4a6289bf4a3a40d2
+Disposition:
+REJECTED
+Total validation PnL:
++23.304964566758713 USD
+Worst validation fold:
+-5.082660314983147 USD
+Positive validation folds:
+2/3
+Validation trades:
+167
+Validation return-to-drawdown:
+4.264747423667616
+Validation PnL concentration:
+0.8645767220344304
+Rejection:
+non_positive_worst_validation_fold_pnl
+
+SOL/USD
+Campaign:
+scorer_campaign_fd7c9bf6432dddcd
+Disposition:
+REJECTED
+Total validation PnL:
+-14.566887121013814 USD
+Worst validation fold:
+-44.82398608984841 USD
+Positive validation folds:
+2/3
+Validation trades:
+744
+Validation return-to-drawdown:
+-0.28933339031057825
+Validation PnL concentration:
+0.7673852890384143
+Rejections:
+non_positive_total_validation_pnl
+non_positive_worst_validation_fold_pnl
+
+ADA/USD
+Campaign:
+scorer_campaign_04f5e571dbd17277
+Disposition:
+REJECTED
+Total validation PnL:
++42.36691710205077 USD
+Worst validation fold:
+-11.586296263873146 USD
+Positive validation folds:
+2/3
+Validation trades:
+500
+Validation return-to-drawdown:
+1.6464289426499763
+Validation PnL concentration:
+0.6728983210047128
+Rejection:
+non_positive_worst_validation_fold_pnl
+
+XLM/USD
+Campaign:
+scorer_campaign_434f2f1f7d09b02a
+Disposition:
+REJECTED
+Total validation PnL:
++182.20320145322626 USD
+Worst validation fold:
+-3.6091956518482835 USD
+Positive validation folds:
+2/3
+Validation trades:
+371
+Validation return-to-drawdown:
+7.560917882999145
+Validation PnL concentration:
+0.6469381315170087
+Rejection:
+non_positive_worst_validation_fold_pnl
+
+LINK/USD
+Campaign:
+scorer_campaign_1f60581971274d77
+Disposition:
+REJECTED
+Total validation PnL:
++4.896114557733826 USD
+Worst validation fold:
+-20.063629504431322 USD
+Positive validation folds:
+1/3
+Validation trades:
+524
+Validation return-to-drawdown:
+0.1509261257351886
+Validation PnL concentration:
+1.0
+Rejection:
+non_positive_worst_validation_fold_pnl
+
+DOGE/USD
+Campaign:
+scorer_campaign_4408b47b25418119
+Disposition:
+REJECTED
+Total validation PnL:
+-29.932821902252368 USD
+Worst validation fold:
+-31.506710301079426 USD
+Positive validation folds:
+1/3
+Validation trades:
+675
+Validation return-to-drawdown:
+-0.9500459304133334
+Validation PnL concentration:
+1.0
+Rejections:
+non_positive_total_validation_pnl
+non_positive_worst_validation_fold_pnl
+
+LTC/USD
+Campaign:
+scorer_campaign_b97380baf68537a5
+Disposition:
+REJECTED
+Total validation PnL:
++42.44136919371948 USD
+Worst validation fold:
+-12.589653694453151 USD
+Positive validation folds:
+2/3
+Validation trades:
+324
+Validation return-to-drawdown:
+3.2306456965674584
+Validation PnL concentration:
+0.6380853308516302
+Rejection:
+non_positive_worst_validation_fold_pnl
+
+RESEARCH CONCLUSION
+
+BTC is the sole PRIMARY_COMPARABLE member that survives the current campaign
+rejection policy.
+
+This is not deployment approval.
+
+BTC's total profit and return-to-drawdown are modest.
+
+Its strongest evidence is cross-period consistency:
+all three frozen validation folds are positive.
+
+The frozen scorer/strategy configuration is not cross-asset robust.
+
+Seven of eight PRIMARY members fail at least one rejection rule.
+
+Several rejected members remain profitable in aggregate, demonstrating why
+aggregate PnL alone is insufficient for candidate advancement.
+
+XLM is the strongest example:
+large aggregate validation profit, but one losing validation fold.
+
+FIXED-QUANTITY BASELINE INTERPRETATION CORRECTION
+
+The earlier PRIMARY-8 baseline used 0.01 base-asset units per trade.
+
+That run remains valid for sizing-independent behavioral evidence such as:
+
+- trade chronology
+- trade counts
+- entry and exit events
+- stop/exit frequencies
+- signal behavior
+
+It is not valid for economically comparable cross-asset dollar PnL.
+
+Additionally, fold PnL signs are not sizing-independent.
+
+Equal-USD sizing changes the relative monetary weight of trades across time,
+even when entry and exit chronology is unchanged.
+
+BTC demonstrates this directly:
+
+Old fixed-quantity baseline:
+approximately -0.70 USD total validation PnL
+1/3 positive validation folds
+
+New equal-USD-notional baseline:
++3.351793603110794 USD total validation PnL
+3/3 positive validation folds
+
+Therefore monetary fold metrics for cross-asset research must come from the
+explicit comparable sizing contract.
+
+NEXT RESEARCH MISSION
+
+Recommended:
+CROSS-ASSET DISCRIMINATION DIAGNOSIS
+
+Question:
+
+Why does BTC survive all three validation periods while the same frozen
+strategy/scorer fails one or more periods on every other PRIMARY member?
+
+The next diagnosis should compare BTC with rejected assets under the already
+frozen source, fold, cost, scorer, and sizing contracts.
+
+Candidate explanatory dimensions include:
+
+- entry quality
+- trend persistence
+- volatility structure
+- scorer scaling/saturation
+- early continuation
+- stop/exit interaction
+- market-regime compatibility
+
+Do not inspect protected 2025+ OOS.
+
+Do not begin broad parameter optimization before this contrast is understood.

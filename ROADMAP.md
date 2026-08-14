@@ -34,27 +34,40 @@ Both outcomes are valuable.
 
 ## Current status
 
-The engineering foundation is advanced.
+The engineering and research foundation is advanced.
 
 The project currently supports:
 
+* live LONG_ONLY paper execution
+* explicit SHORT quarantine
+* isolated Event-Risk research/service behavior
 * historical data collection and storage
-* audited Coinbase BTC/USD 5-minute history
-* explicit treatment of confirmed data gaps
+* audited manifest-backed historical datasets
+* explicit physical-gap handling
 * gap-aware replay
-* paper-broker execution
-* decision and trade artifacts
-* runtime health controls
-* live-versus-backtest equivalence checks
-* scorer research
-* walk-forward research components
-* an isolated Event-Risk service
+* deterministic chronological walk-forward folds
+* deterministic scorer campaigns
+* reproducible campaign and candidate identity
+* frozen Coinbase USD Research Universe V1
+* explicit multi-asset eligibility policy
+* frozen PRIMARY_COMPARABLE research population
+* research-only equal-USD-notional sizing
+* decision, trade, and research-event artifacts
+* runtime health and operator controls
 * dashboard visibility
-* Docker-based deployment on OLD-BOX
+* Docker-based execution on OLD-BOX
 
-Profitability is not yet proven.
+The historical-data preparation phase is complete.
 
-Meaningful live capital is not yet appropriate.
+The campaign/research infrastructure required for multi-asset research is
+implemented.
+
+Profitability is not proven.
+
+Meaningful live capital remains inappropriate.
+
+The active experiment and exact immediate next action belong in HANDOFF.md,
+not in this roadmap.
 
 ## Completed milestone: core paper system
 
@@ -126,13 +139,11 @@ This separation protects the current baseline from an unvalidated external featu
 
 Event-Risk may later be tested as an independent filter or research feature.
 
-## Completed milestone: historical dataset audit
+## Completed milestone: original BTC historical dataset audit
 
-The main historical research dataset is:
+The original canonical historical control dataset is:
 
-```
-coinbase_history_2022_20260209
-```
+`coinbase_history_2022_20260209`
 
 Contract:
 
@@ -149,6 +160,17 @@ Contract:
 No synthetic candles were created.
 
 No data from another exchange was inserted.
+
+This dataset remains an important canonical control source.
+
+It is no longer the entire historical research universe.
+
+The project subsequently expanded to the frozen:
+
+`research_universe_coinbase_usd_v1`
+
+That universe contains 29 verified Coinbase USD spot markets with explicit,
+market-specific manifests and heterogeneous historical completeness.
 
 ## Completed milestone: gap-aware historical replay
 
@@ -285,65 +307,182 @@ physical_segment_count
 gap_count_crossed
 ```
 
-## Current mission protected behavior
+## Completed milestone: manifest-backed walk-forward and campaign infrastructure
 
-The current mission must not change:
+The following research infrastructure is implemented:
 
-* run_single_trial()
-* run_backtest() execution behavior
-* replay segmentation
-* per-segment warmup
-* strategy thresholds
-* scorer parameters
-* LONG-only policy
-* SHORT quarantine
-* Event-Risk isolation
-* paper runtime
-* fee and slippage behavior
-* existing decision and trade schemas
-* legacy regression behavior
-
-## Current mission verification
-
-Required checks include:
-
-* LOCAL compile and import checks
-* exact gap-boundary tests
-* half-open fold adjacency tests
-* range crossing one gap
-* range crossing gaps 6 and 7
-* preservation of the three-bar segment
+* public audited HistoricalResearchSource
+* half-open chronological fold definitions
+* explicit gap-boundary validation
+* physical-segment-aware fold planning
 * deterministic fold statistics
-* removal of private engine imports
-* small gap-crossing trial on OLD-BOX
-* research execution-event artifact verification
-* established legacy regression
-* documentation update
-* focused commit
+* deterministic scorer trials
+* deterministic campaign identity
+* deterministic execution identity
+* one audited source reused per campaign process
+* isolated campaign artifacts
+* resume and reuse validation
+* failure preservation
+* aggregation
+* rejection policy
+* ranking policy
+* Git and source identity recording
+* realistic transaction-cost scenarios
 
-The complete four-year backtest does not need to be rerun unless the implementation changes historical execution behavior.
+Frozen ordinary research folds are:
 
-## Next mission: campaign runner
+Fold 1:
 
-After manifest-backed fold planning is complete, the next major mission is a true multi-trial campaign runner.
+* train 2022
+* validate 2023-H1
 
-The campaign runner should own:
+Fold 2:
 
-* campaign identity
-* candidate generation
-* source loading
-* source reuse
-* trial orchestration
-* progress tracking
-* result collection
-* failure recording
-* campaign summaries
+* train through 2023-H1
+* validate 2023-H2
 
-The campaign runner should load and audit one historical source per campaign process.
+Fold 3:
 
-It should then explicitly reuse that source across trials.
+* train through 2023
+* validate 2024
 
-This optimization should not be added before the campaign runner exists.
+The 2025+ period remains protected out-of-sample data.
+
+## Completed milestone: Coinbase USD Research Universe V1
+
+The project now has a frozen multi-asset historical research universe:
+
+`research_universe_coinbase_usd_v1`
+
+The universe contains 29 verified Coinbase USD spot markets.
+
+Its membership and identity are frozen.
+
+Material changes require a new universe version.
+
+The current PRIMARY_COMPARABLE population is:
+
+* BTC/USD
+* ETH/USD
+* SOL/USD
+* ADA/USD
+* XLM/USD
+* LINK/USD
+* DOGE/USD
+* LTC/USD
+
+Historical completeness is not equal across all markets.
+
+Missing data remains explicit rather than fabricated.
+
+## Completed milestone: cross-asset comparable research sizing
+
+The research system supports an optional explicit USD order-notional
+contract.
+
+This allows capital-dependent metrics such as raw dollar PnL to be compared
+across assets under equivalent economic exposure.
+
+The research sizing override:
+
+* is optional
+* is disabled by default
+* is isolated from live sizing
+* participates in campaign identity when supplied
+* preserves legacy campaign identity when absent
+
+## Completed milestone: PRIMARY-8 equal-USD-notional baseline
+
+The first authoritative economically comparable PRIMARY_COMPARABLE baseline
+is complete and audited.
+
+Contract:
+
+* eight PRIMARY_COMPARABLE assets
+* one frozen strategy/scorer configuration
+* scorer contract: entry_scorer_v3_normalized_slope
+* frozen trial: trial_096291cf0738ff2f
+* 100 USD research order notional
+* three frozen chronological validation folds
+* realistic costs
+* protected 2025+ out-of-sample data untouched
+
+Execution:
+
+* 8/8 campaigns completed
+* 48/48 planned backtests completed
+* zero failure rows
+
+Result:
+
+* BTC/USD was eligible under the current rejection policy
+* BTC had 3/3 positive validation folds
+* seven of eight PRIMARY assets were rejected
+* several rejected assets remained profitable in aggregate but failed
+  worst-fold requirements
+
+This establishes that aggregate profit alone is insufficient and that the
+frozen strategy/scorer configuration is not broadly cross-asset robust.
+
+The completed evidence is recorded in:
+
+`docs/milestones/2026-08-14_primary8_usd100_baseline_v1.txt`
+
+## Current research gate
+
+The next gate is cross-asset discrimination diagnosis.
+
+Primary question:
+
+Why does BTC/USD survive all three frozen validation periods while the same
+strategy/scorer configuration fails one or more periods on every other
+PRIMARY member?
+
+The next diagnosis should compare assets under the already frozen:
+
+* historical-source contracts
+* universe membership
+* eligibility policy
+* chronological folds
+* scorer contract
+* cost model
+* equal-USD-notional sizing
+
+Candidate explanatory dimensions include:
+
+* entry quality
+* trend persistence
+* volatility structure
+* scorer scaling or saturation
+* early continuation
+* stop/exit interaction
+* market-regime compatibility
+
+Do not begin broad parameter optimization before this contrast is understood.
+
+The diagnosis should feed directly into the next research stages:
+
+1. reduce the scorer/strategy parameter space using observed feature
+   discrimination and structural evidence
+2. define bounded common parameter ranges rather than one BTC-specific point
+3. run a PRIMARY_COMPARABLE Monte Carlo or equivalent randomized search in
+   which each candidate is applied unchanged across all included assets
+4. evaluate cross-period and cross-asset robustness, including neighborhood
+   stability rather than selecting only the highest aggregate-PnL point
+5. investigate limited normalized asset/regime adjustment controls only
+   after a common robust region has been established
+6. use constrained independent asset searches later as a transferability
+   diagnostic, not as the primary model-development path
+
+The target is a common transferable feature structure with minimal justified
+adaptation, not separate unconstrained parameter sets for every asset.
+
+Do not inspect protected 2025+ out-of-sample data.
+
+The exact branch, current repository checkpoint, and immediate execution plan
+belong in:
+
+`HANDOFF.md`
 
 ## Campaign metadata
 
@@ -830,214 +969,61 @@ These areas may become appropriate later.
 
 They should not distract from proving one trustworthy research and execution path.
 
-## Estimated timeline
+## Advancement gates
 
-No timeline can guarantee profitability.
+The project does not advance according to a calendar estimate.
 
-Assuming steady progress and no major strategy failure:
+It advances only when evidence gates are satisfied.
 
-### Near term
+### Research gate
 
-Approximately 3 to 6 weeks:
+Before a candidate can advance:
 
-* complete manifest-backed walk-forward planning
-* define historical folds
-* create campaign contracts
-* prepare the first bounded campaign
+* ordinary validation evidence is complete
+* profitability is not concentrated in one fold or exceptional trade
+* drawdown is acceptable
+* transaction costs are realistic
+* nearby parameter behavior is stable where relevant
+* cross-asset evidence is understood
+* protected final out-of-sample data remains untouched
 
-### Research phase
+### Final out-of-sample gate
 
-Approximately 1 to 3 additional months:
+Before opening protected OOS:
 
-* run campaigns
-* evaluate candidates
-* reject weak configurations
-* test stability
-* stress costs
-* complete a locked final out-of-sample test
+* candidate is frozen
+* parameters are frozen
+* evaluation rules are frozen
+* cost assumptions are frozen
+* code identity is recorded
+* source/universe identity is recorded
+* success/failure criteria are frozen
 
-### Paper-forward phase
+The final test is evidence, not another tuning period.
 
-Approximately 2 to 4 additional months:
+### Paper-forward gate
 
-* run the locked candidate
-* collect sufficient forward trades
-* verify operational stability
-* compare expected and observed behavior
+Before meaningful execution advancement:
 
-### Real-exchange preparation
+* historical candidate survives final OOS evaluation
+* forward paper behavior is sufficiently observed
+* operational stability is demonstrated
+* expected and observed behavior are reasonably aligned
+* risk remains acceptable
 
-Approximately 1 to 2 additional months:
+### Real-exchange gate
 
-* build order handling
-* build reconciliation
-* test restarts
-* test safety controls
-* run shadow and tiny-order validation
+Before any meaningful real-money execution:
 
-A realistic planning range is:
+* exchange-order handling is explicitly implemented
+* balance and position reconciliation exist
+* partial-fill behavior is understood
+* cancellation and retry behavior are verified
+* restart/recovery behavior is verified
+* live safety controls are independently checked
+* tiny-capital testing is explicitly authorized
 
-* 6 to 12 months before tiny live capital
-* 12 to 18 months or longer before meaningful capital
+There is no promised schedule for these gates.
 
-The timeline may be longer if no candidate passes the evidence gates.
-
-That is an acceptable outcome.
-
-## Readiness gates
-
-## Research-ready
-
-Requires:
-
-* audited source
-* explicit gap handling
-* deterministic replay
-* preserved legacy behavior
-* reproducible artifacts
-
-Current status:
-
-```
-substantially achieved
-```
-
-## Campaign-ready
-
-Requires:
-
-* public historical source contract
-* half-open folds
-* campaign manifest
-* deterministic candidate identity
-* automated result collection
-
-Current status:
-
-```
-in progress
-```
-
-## Candidate-ready
-
-Requires:
-
-* multiple acceptable folds
-* acceptable drawdown
-* sufficient trade count
-* parameter stability
-* cost resilience
-
-Current status:
-
-```
-not achieved
-```
-
-## Final-test-ready
-
-Requires:
-
-* selected candidate
-* frozen parameters
-* frozen success criteria
-* untouched final period
-* recorded commit and source fingerprint
-
-Current status:
-
-```
-not achieved
-```
-
-## Paper-forward-ready
-
-Requires:
-
-* candidate passes final test
-* runtime configuration locked
-* evidence collection plan
-* no unresolved execution defects
-
-Current status:
-
-```
-not achieved
-```
-
-## Tiny-live-ready
-
-Requires:
-
-* paper-forward evidence
-* real order adapter
-* reconciliation
-* restart safety
-* duplicate protection
-* tested loss limits
-* tested kill switch
-* operator alerts
-
-Current status:
-
-```
-not achieved
-```
-
-## Meaningful-capital-ready
-
-Requires:
-
-* successful tiny-capital operation
-* live costs inside expected range
-* acceptable live drawdown
-* sustained operational reliability
-* predefined scaling plan
-* no unresolved safety incidents
-
-Current status:
-
-```
-not achieved
-```
-
-## Decision framework
-
-At the end of each mission, choose one result:
-
-* PASS
-* FAIL
-* PAUSE FOR MORE EVIDENCE
-* INVALID DUE TO IMPLEMENTATION DEFECT
-* DEFERRED
-
-The decision should include:
-
-* evidence
-* limitations
-* preserved artifacts
-* next action
-
-A mission should not silently drift into another mission.
-
-## Roadmap maintenance
-
-Update this roadmap when:
-
-* a milestone passes
-* a mission fails
-* ownership changes
-* readiness changes
-* a major contract changes
-* a new phase begins
-* planned work is intentionally deferred
-
-Do not mark a capability complete before it is implemented and practically verified.
-
-## Final roadmap principle
-
-The project should move toward real money only when the evidence and operational controls justify it.
-
-The objective is not to reach live trading quickly.
-
-The objective is to build a system that can tell the truth about whether live trading is justified at all.
+If no candidate demonstrates a robust edge, the correct outcome is to reject
+the candidate or strategy family rather than advance because time has passed.

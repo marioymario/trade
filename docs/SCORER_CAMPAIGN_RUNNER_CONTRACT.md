@@ -2,25 +2,44 @@
 
 ## 1. Status and ownership
 
-Contract status: proposed_v1
+Contract status:
+IMPLEMENTED AND ACTIVE
 
 Active authoritative research path:
 manifest-backed deterministic scorer campaigns
 
-Latest completed prerequisite:
-manifest-backed walk-forward planning
+Current implementation versions:
+
+* campaign schema version: 6
+* trial-space version: scorer_parameter_space_v2_normalized_slope
+* execution artifact contract: scorer_execution_artifacts_v2
+* rejection policy: scorer_rejection_policy_v3
+* ranking policy: scorer_ranking_policy_v1
+
+Implemented prerequisites include:
+
+* public HistoricalResearchSource
+* manifest-backed gap-aware replay
+* half-open chronological walk-forward planning
+* deterministic fold statistics
+* deterministic scorer trials
+* isolated campaign artifacts
+* resume and identity validation
+* aggregation
+* rejection and ranking policy
 
 The campaign runner does not replace or retire:
 
-- the low-level single-trial scorer utility
-- automatic manifest-backed backtests
-- legacy Parquet backtests
-- legacy frozen research paths
+* the low-level single-trial scorer utility
+* automatic manifest-backed backtests
+* legacy Parquet backtests
+* frozen legacy research paths
 
 Those paths remain available for compatibility and regression work.
 
-The campaign runner is a stricter research entry point. It must never silently
-fall back to a legacy or live-data namespace.
+The campaign runner is the stricter research orchestration path.
+
+It must never silently fall back to a legacy or live-data namespace.
 
 ## 2. Mission
 
@@ -62,83 +81,105 @@ compatibility paths.
 
 ## 4. Campaign inputs
 
-An immutable campaign specification must contain:
+An immutable campaign specification contains the effective
+behavior-changing campaign assumptions, including:
 
-- campaign_schema_version
-- source_contract
-- data_tag
-- symbol
-- timeframe
-- trial_space_version
-- trial_count
-- random_seed
-- walk_forward_splits
-- fixed_strategy_settings
-- minimum_total_trades
-- minimum_validation_trades_per_split
-- fee_bps
-- slippage_bps
-- min_bars
-- cooldown_bars
-- max_order_size
-- cost_stress_scenarios
+* campaign_schema_version
+* source_contract
+* data_tag
+* symbol
+* timeframe
+* scorer_contract
+* trial_space_version
+* trial_count
+* random_seed
+* resolved walk-forward splits
+* fixed strategy settings
+* minimum total trades
+* minimum validation trades per split
+* min_bars
+* cooldown_bars
+* max_order_size
+* cost scenarios
 
-The initial implementation may use the current source-controlled scorer search
-settings as defaults, but all effective values must be frozen in the campaign
-manifest.
+The specification may additionally contain:
 
-The final out-of-sample window is not part of ordinary candidate selection. It
-remains locked until the selection policy explicitly authorizes its use.
+* research_order_notional_usd
+
+research_order_notional_usd is optional and research-only.
+
+When absent:
+
+* legacy/default sizing behavior remains unchanged
+* the field is not serialized into the legacy campaign specification
+* historical default campaign identity remains stable
+
+When supplied:
+
+* the value must be positive
+* research execution derives entry quantity from explicit USD notional
+* the value becomes part of serialized campaign identity
+* semantically different sizing assumptions therefore receive different
+  campaign IDs
+
+The sizing override must not silently alter live sizing behavior.
+
+All effective campaign values must be frozen in the campaign manifest.
+
+The protected final out-of-sample window is not part of ordinary candidate
+selection.
+
+It remains locked until the research-selection policy explicitly authorizes
+its use.
 
 ## 5. Identity rules
 
-The effective immutable campaign specification must be serialized as canonical
-JSON with sorted keys, compact separators, no NaN values, and UTF-8 encoding.
+The effective immutable campaign specification is serialized as canonical
+JSON with deterministic key ordering and values suitable for stable hashing.
 
-Its SHA-256 digest is the campaign specification fingerprint.
-
-The campaign ID must be deterministic for the effective specification and
-source identity.
+The campaign ID is deterministic for the effective specification, Git/source
+identity, resolved folds, and candidate set.
 
 Campaign ID format:
 
-scorer_campaign_<first 16 hexadecimal characters of SHA-256>
+scorer_campaign_<deterministic hexadecimal suffix>
 
-Campaign IDs must contain only lowercase ASCII letters, digits, and
-underscores.
+Campaign identity must capture every behavior-changing assumption that can
+materially affect research results.
 
-The campaign identity digest must include at least:
+Identity includes, as applicable:
 
-- campaign schema version
-- Git commit
-- source contract
-- manifest fingerprint
-- data tag
-- symbol
-- timeframe
-- resolved walk-forward definitions
-- trial-space version
-- candidate identities
-- fixed strategy settings
-- fees and slippage
-- minimum trade requirements
-- cost-stress scenarios
+* campaign schema version
+* Git commit
+* source contract
+* manifest fingerprint
+* data tag
+* symbol
+* timeframe
+* resolved walk-forward definitions
+* scorer contract
+* trial-space version
+* candidate identities
+* fixed strategy settings
+* fees and slippage
+* minimum trade requirements
+* cost scenarios
+* explicit research sizing assumptions
 
-The existing deterministic trial_id remains the candidate identity.
+The existing deterministic trial_id remains the scorer-candidate identity.
 
-Every candidate and window execution must have a stable run ID derived from:
+research_order_notional_usd has special compatibility semantics:
 
-- campaign ID
-- candidate trial ID
-- split name
-- window role
-- cost scenario ID
+* when None, it is omitted from serialized specification identity so existing
+  legacy/default campaign identities remain stable
+* when explicitly supplied, it is serialized and therefore produces a
+  different campaign identity
 
-Window role must be train or validation.
+Campaign execution must never reuse artifacts from a semantically different
+campaign merely because the scorer candidate is identical.
 
-Run IDs must contain only lowercase ASCII letters, digits, and underscores.
-
-A fold run must never share a backtest output namespace with another fold run.
+Every candidate/window execution must retain a stable execution identity
+derived from its campaign, trial, fold, phase, and cost scenario.
 
 ## 6. Source and fold ownership
 
@@ -490,25 +531,39 @@ identity.
 
 ## 18. Fixed strategy protection
 
-Before planning and before each execution, verify:
+Campaign research must preserve strategy behavior that is outside the explicit
+campaign search or research-override contract.
 
-- ENABLE_LONG = true
-- ENABLE_SHORT = false
-- ATR_MULT = 2.0
-- TRAIL_ATR_MULT = 2.0
-- MAX_HOLD_BARS = 24
-- Event-Risk disabled
+This includes live/default behavior not intentionally exposed as a research
+control.
 
-The campaign must not modify:
+The campaign system must not silently change:
 
-- live paper configuration
-- live paper data
-- live strategy settings
-- SHORT quarantine
-- Event-Risk connectivity
+* LONG/SHORT policy
+* Event-Risk connectivity
+* stop semantics
+* trailing semantics
+* time-stop behavior
+* cooldown semantics
+* execution timing
+* fee/slippage interpretation
+* historical-gap policy
+* live sizing behavior
 
-Temporary scorer replacement must continue restoring original strategy state
-in a finally block.
+Research-only sizing is an explicit exception to legacy backtest quantity
+behavior only when research_order_notional_usd is supplied.
+
+That override:
+
+* is optional
+* is disabled by default
+* is recorded in campaign identity
+* is passed through the research/backtest execution path
+* does not modify files/strategy/rules.py live/default sizing behavior
+
+Promotion of research sizing or any other research-only control into live
+execution requires a separate explicit implementation and verification
+decision.
 
 ## 19. Implementation boundaries
 
@@ -545,47 +600,78 @@ It must not duplicate:
 
 ## 20. Verification contract
 
-LOCAL verification may include only data-independent checks:
+Campaign infrastructure changes require verification appropriate to the
+changed contract.
 
-- Python compilation
-- canonical serialization determinism
-- identity determinism
-- path validation
-- execution-plan determinism using synthetic objects
-- aggregation and rejection logic using synthetic metrics
-- Git cleanliness enforcement
-- legacy call-interface compatibility
+Verification should cover, where applicable:
 
-All historical-data-dependent verification runs on OLD-BOX.
+* deterministic campaign identity
+* deterministic trial identity
+* source and manifest identity
+* half-open fold resolution
+* physical-gap awareness
+* isolated artifacts
+* resume behavior
+* identity-conflict failure
+* partial-failure preservation
+* aggregation
+* rejection policy
+* ranking policy
+* Git identity
+* protected final out-of-sample boundaries
+* legacy/default behavior preservation
 
-Required OLD-BOX evidence:
+For research_order_notional_usd specifically, verification must prove:
 
-1. Source audit succeeds once.
-2. A bounded smoke campaign plans deterministically.
-3. One candidate runs across one bounded fold.
-4. Trial artifacts remain isolated.
-5. Metrics and rejection outputs are produced.
-6. A same-specification rerun reuses successful results safely.
-7. Replanning produces the same immutable execution plan.
-8. An invalid non-manifest data tag fails before execution.
-9. Existing legacy backtest behavior remains available outside the campaign.
-10. Live paper health remains unchanged.
+1. the default None path preserves legacy/default serialization and behavior
+2. an explicit positive value participates in campaign identity
+3. old and new sizing campaigns cannot collide
+4. the value reaches actual backtest execution
+5. executed quantity produces the requested entry notional within expected
+   numerical tolerance
+6. live/default sizing remains unchanged
+
+Data-dependent campaign verification belongs on OLD-BOX.
+
+LOCAL static checks alone are not sufficient proof for historical execution
+behavior.
 
 ## 21. Mission completion
 
-The campaign-runner mission is complete only when:
+The deterministic scorer campaign runner mission is complete as
+infrastructure.
 
-- one audited source is resolved once per campaign process
-- the source contract is manifest-backed
-- the source object is explicitly reused
-- the source fingerprint is recorded
-- candidates and folds are deterministic and recorded
-- every candidate and fold execution has isolated identity
-- cost assumptions and fixed strategy settings are recorded
-- failures and rejections are preserved
-- resume behavior is identity-safe
-- aggregate results are reproducible
-- no campaign path can silently select legacy or live data
-- a bounded OLD-BOX smoke campaign succeeds
-- the same specification reproduces the same immutable plan
-- existing working legacy and single-trial paths remain intact
+Implemented capabilities include:
+
+* manifest_backed_v1 source enforcement
+* one audited HistoricalResearchSource reused per campaign process
+* deterministic scorer candidates
+* deterministic campaign and execution identity
+* half-open chronological folds
+* isolated execution artifacts
+* resume semantics
+* failure preservation
+* aggregation
+* rejection policy
+* ranking policy
+* Git identity
+* source-manifest identity
+* realistic transaction-cost scenarios
+* explicit research-only USD-notional sizing
+
+Current versions:
+
+* campaign schema version: 6
+* trial-space version: scorer_parameter_space_v2_normalized_slope
+* execution artifact contract: scorer_execution_artifacts_v2
+* rejection policy: scorer_rejection_policy_v3
+* ranking policy: scorer_ranking_policy_v1
+
+Infrastructure completion does not imply that a profitable strategy has been
+found.
+
+Campaign outcomes remain research evidence and may validly reject every
+candidate.
+
+The active research mission and latest campaign results belong in HANDOFF.md
+and milestone/research reports rather than in this contract.

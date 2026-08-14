@@ -47,33 +47,38 @@ The goal is to determine whether any strategy or scorer configuration can produc
 
 The system currently includes:
 
-* Coinbase BTC/USD 5-minute historical data
-* an audited historical dataset covering 2022 through early 2026
-* explicit handling of seven confirmed Coinbase data outages
+* audited manifest-backed historical datasets
+* a frozen 29-market Coinbase USD Research Universe V1
+* an explicit PRIMARY_COMPARABLE multi-asset research population
 * gap-aware historical replay
-* independent indicator warmup after data gaps
+* independent indicator warmup after confirmed data gaps
+* deterministic chronological walk-forward folds
+* deterministic scorer campaign infrastructure
+* reproducible campaign and candidate identity
+* explicit rejection and ranking policies
+* research-only equal-USD-notional sizing for cross-asset comparison
 * paper-broker execution modeling
 * next-bar entry modeling
-* trailing-stop behavior
+* stop and trailing behavior
 * cooldown behavior
+* realistic fee and slippage modeling
 * decision and trade artifacts
 * strict research execution-event artifacts
 * live-versus-backtest equivalence tooling
-* restart-safe decision deduplication
+* restart-safe decision handling
 * paper-runtime health checks
 * STOP, HALT, and ARM controls
-* scorer research infrastructure
-* walk-forward research components
 * an isolated Event-Risk service
 * Docker-based runtime services
-* a Streamlit dashboard
-* reproducible deployment to the execution machine
+* Streamlit operational visibility
+* reproducible LOCAL-to-OLD-BOX deployment
 
-The gap-aware historical replay implementation is recorded in commit:
+The original Coinbase BTC/USD historical dataset remains an important
+canonical control source, but it is no longer the entire research universe.
 
-```
-d4c6f7d Add gap-aware historical replay
-```
+Historical-data completeness varies across markets and remains explicit.
+
+Missing candles are not fabricated or silently replaced from another exchange.
 
 ## What is not yet proven
 
@@ -92,19 +97,51 @@ No contributor should describe this repository as a profitable trading system or
 
 ## Current research direction
 
-The next major research mission is to move walk-forward scorer planning fully onto the public manifest-aware historical contract.
+The project is now in multi-asset strategy/scorer research.
 
-The intended design includes:
+The research infrastructure needed for this phase is implemented, including:
 
-* a public audited historical research-source contract
-* half-open research windows
-* explicit gap-boundary validation
-* fold planning through the existing segmentation machinery
-* deterministic fold statistics
-* separation between manifest-backed research and frozen legacy campaigns
-* removal of private engine-loader dependencies from scorer walk-forward planning
+* manifest-backed historical sources
+* gap-aware replay
+* half-open chronological folds
+* deterministic scorer campaigns
+* frozen multi-asset universe identity
+* explicit research eligibility policy
+* cross-asset comparable research sizing
+* protected later out-of-sample data
 
-Trial execution should continue through the existing public backtest path.
+The first authoritative equal-USD-notional PRIMARY_COMPARABLE baseline is
+complete and audited.
+
+Using one frozen strategy/scorer configuration across eight economically
+normalized assets:
+
+* BTC/USD satisfied the current campaign rejection policy
+* seven of eight PRIMARY members were rejected
+* BTC was the only member with three positive validation folds
+
+This result is evidence, not deployment approval.
+
+The current research question is why BTC survives across all three validation
+periods while the same frozen configuration fails one or more periods on the
+other PRIMARY assets.
+
+The active mission, exact branch/commit, campaign identities, and immediate
+next action belong in:
+
+`HANDOFF.md`
+
+The completed normalized-baseline milestone is recorded in:
+
+`docs/milestones/2026-08-14_primary8_usd100_baseline_v1.txt`
+
+The durable system state is documented in:
+
+`docs/CANONICAL_CURRENT_STATE.md`
+
+Research evidence and evaluation rules are documented in:
+
+`docs/RESEARCH_PRINCIPLES.md`
 
 ## Historical dataset
 
@@ -350,13 +387,24 @@ Owns:
 
 Start with:
 
-* README.md
+* HANDOFF.md
+* docs/CANONICAL_CURRENT_STATE.md
+* docs/ARCHITECTURE.md
+* docs/RESEARCH_PRINCIPLES.md
 * CONTRIBUTING.md
 * docs/PROJECT_REVIEW_GUIDE.md
-* docs/CANONICAL_CURRENT_STATE.md
-* docs/research/historical_backfill_mission_2022_2026.md
 
-The canonical current-state document takes priority when older handoffs or notes conflict with it.
+Document ownership is intentional:
+
+* HANDOFF.md owns the active mission, exact repository checkpoint, and
+  transient run state.
+* docs/CANONICAL_CURRENT_STATE.md owns durable current system state.
+* docs/ARCHITECTURE.md owns architecture and module boundaries.
+* docs/RESEARCH_PRINCIPLES.md owns evidence and research-integrity policy.
+* subsystem contract documents own their exact interfaces and semantics.
+* archived handoffs and snapshots are historical only.
+
+When documents disagree, use the document that owns the relevant subject.
 
 ## Contribution model
 
@@ -490,27 +538,35 @@ The system is not currently suitable for:
 
 ## Path toward live capital
 
-The expected progression is:
+The project advances through evidence gates rather than a calendar.
 
-1. Complete manifest-backed walk-forward planning.
-2. Define locked chronological research folds.
-3. Run deterministic scorer campaigns.
-4. Reject unstable or overfit candidates.
-5. Run a final untouched out-of-sample test.
-6. Forward-test a locked candidate in paper mode.
-7. Build real-exchange order handling and reconciliation.
-8. Validate kill switches and loss limits.
-9. Begin only with financially insignificant capital.
-10. Scale only after predefined evidence gates are passed.
+Already completed infrastructure includes:
 
-The expected timeline is uncertain.
+* manifest-backed historical research sources
+* frozen chronological walk-forward folds
+* deterministic scorer campaigns
+* reproducible campaign identity
+* multi-asset research-universe construction
+* explicit research eligibility policy
+* cross-asset comparable research sizing
 
-A reasonable planning range is approximately:
+Remaining advancement gates include:
 
-* 6 to 12 months before tiny live capital
-* 12 to 18 months or longer before meaningful capital
+1. identify a strategy/scorer candidate with robust ordinary validation evidence
+2. reject unstable, concentrated, or overfit candidates
+3. freeze the candidate and evaluation policy
+4. run the protected final out-of-sample evaluation
+5. forward-test a locked candidate in paper mode
+6. demonstrate sufficient operational stability and risk control
+7. build and verify real-exchange order handling and reconciliation
+8. verify partial-fill, cancellation, retry, restart, and recovery behavior
+9. independently validate live safety controls and loss limits
+10. authorize only financially insignificant capital after all preceding gates pass
+11. scale only after additional predefined evidence gates are satisfied
 
-The calendar alone does not determine readiness.
+There is no promised schedule for live capital.
+
+Time passing does not make the system ready.
 
 Evidence does.
 
