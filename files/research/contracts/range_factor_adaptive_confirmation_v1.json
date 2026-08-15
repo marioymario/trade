@@ -1,0 +1,78 @@
+{
+  "contract_id": "range_factor_adaptive_confirmation_v1",
+  "status": "frozen_before_confirmation",
+  "purpose": "One-shot out-of-sample confirmation of the adaptive range-factor policy against the frozen scorer baseline.",
+  "development_data_end_exclusive": "2025-01-01T00:00:00Z",
+  "confirmation_window": {
+    "start_inclusive": "2025-01-01T00:00:00Z",
+    "end_exclusive": "2026-01-01T00:00:00Z"
+  },
+  "reserved_unseen_window_after_confirmation": {
+    "start_inclusive": "2026-01-01T00:00:00Z",
+    "end_exclusive": "2026-02-09T00:00:00Z",
+    "must_remain_unconsumed": true
+  },
+  "universe": {
+    "universe_id": "research_universe_coinbase_usd_v1",
+    "universe_fingerprint": "f6f75adb7161a9d051a52c18967ffce0d30bcb38c5911cf958d18c2b5ba0454a",
+    "population": "PRIMARY_COMPARABLE",
+    "symbols": [
+      "BTC/USD",
+      "ETH/USD",
+      "SOL/USD",
+      "ADA/USD",
+      "XLM/USD",
+      "LINK/USD",
+      "DOGE/USD",
+      "LTC/USD"
+    ]
+  },
+  "baseline": {
+    "baseline_contract": "multi_asset_baseline_v1_usd_notional",
+    "trial_id": "trial_096291cf0738ff2f",
+    "research_order_notional_usd": 100.0,
+    "range_entry_gate": null
+  },
+  "candidate": {
+    "policy_id": "adaptive_range_previous_validation_v1",
+    "feature": "current_range_vs_prior_10_mean",
+    "gate_threshold": 1.25,
+    "selection_rule": "For each asset, use the range gate in the next unseen period only when the immediately preceding out-of-sample validation period showed positive range-gate-minus-baseline PnL. Otherwise use baseline.",
+    "selection_evidence_cutoff": "2025-01-01T00:00:00Z",
+    "frozen_2025_asset_policy": {
+      "BTC/USD": "range_v1_ge_1_25",
+      "ETH/USD": "range_v1_baseline",
+      "SOL/USD": "range_v1_ge_1_25",
+      "ADA/USD": "range_v1_ge_1_25",
+      "XLM/USD": "range_v1_ge_1_25",
+      "LINK/USD": "range_v1_ge_1_25",
+      "DOGE/USD": "range_v1_baseline",
+      "LTC/USD": "range_v1_baseline"
+    }
+  },
+  "fixed_execution_contract": {
+    "long_only": true,
+    "short_enabled": false,
+    "event_risk_connected": false,
+    "research_order_notional_usd": 100.0,
+    "same_baseline_scorer_parameters": true,
+    "same_exit_policy": true,
+    "same_fee_and_slippage_contract": true,
+    "physical_gap_safe_replay": true
+  },
+  "confirmation_rules": {
+    "all_required": true,
+    "candidate_total_pnl_must_be_positive": true,
+    "candidate_total_pnl_must_exceed_baseline": true,
+    "minimum_assets_not_worse_than_baseline_pnl": 5,
+    "asset_count": 8,
+    "median_candidate_max_drawdown_must_not_exceed_baseline": true,
+    "maximum_assets_with_drawdown_deterioration_over_25_percent": 2
+  },
+  "decision_policy": {
+    "pass": "All confirmation_rules must pass.",
+    "fail": "Failure of any required confirmation rule means the candidate is not promoted from this test.",
+    "no_post_confirmation_retuning": "Do not alter the candidate using 2025 outcomes and then claim the altered version passed this confirmation.",
+    "promotion_note": "A pass makes the candidate eligible for production-equivalent verification and promotion review; it does not bypass operational/equivalence checks."
+  }
+}
