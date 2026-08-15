@@ -24,6 +24,7 @@ from files.research.scorer_campaign_plan import (
 from files.research.scorer_metrics import (
     calculate_trial_metrics,
 )
+from files.backtest.segment_executor import ResearchEntryGate
 from files.research.scorer_trial import (
     TrialRunRequest,
     run_single_trial,
@@ -166,6 +167,7 @@ def run_campaign_execution(
     campaign: InitializedScorerCampaign,
     trading_config: TradingConfig,
     execution_id: str,
+    research_entry_gate: ResearchEntryGate | None = None,
 ) -> dict[str, Any]:
     result_path = campaign.artifacts.trial_result_json(
         execution_id=execution_id,
@@ -276,6 +278,7 @@ def run_campaign_execution(
             research_order_notional_usd=(
                 specification.research_order_notional_usd
             ),
+            research_entry_gate=research_entry_gate,
         )
     )
 

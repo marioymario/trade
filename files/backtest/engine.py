@@ -16,6 +16,7 @@ from files.backtest.replay import (
     build_research_replay_plan,
 )
 from files.backtest.segment_executor import (
+    ResearchEntryGate,
     SegmentBoundaryPolicy,
     SegmentExecutionRequest,
     SegmentWriterContext,
@@ -313,6 +314,7 @@ def run_backtest(
     end_ts_ms: Optional[int] = None,
     replay_plan: ReplayPlan | None = None,
     research_order_notional_usd: float | None = None,
+    research_entry_gate: ResearchEntryGate | None = None,
     early_failure_config: EarlyFailureConfig = (
         EARLY_FAILURE_DISABLED
     ),
@@ -471,6 +473,9 @@ def run_backtest(
                 expected_step_s=int(expected_step_s),
                 research_order_notional_usd=(
                     research_order_notional_usd
+                ),
+                research_entry_gate=(
+                    research_entry_gate
                 ),
                 writers=SegmentWriterContext(
                     bt_exchange=bt_exchange,

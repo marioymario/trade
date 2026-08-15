@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, fields
 from typing import Any, Iterator
 
 from files.backtest.engine import BacktestResult, run_backtest
+from files.backtest.segment_executor import ResearchEntryGate
 from files.backtest.replay import ReplayPlan
 from files.config import TradingConfig
 from files.models.entry_model import (
@@ -38,6 +39,7 @@ class TrialRunRequest:
     end_ts_ms: int | None = None
     replay_plan: ReplayPlan | None = None
     research_order_notional_usd: float | None = None
+    research_entry_gate: ResearchEntryGate | None = None
 
     early_failure_config: EarlyFailureConfig = (
         EARLY_FAILURE_DISABLED
@@ -253,6 +255,9 @@ def run_single_trial(
             replay_plan=request.replay_plan,
             research_order_notional_usd=(
                 request.research_order_notional_usd
+            ),
+            research_entry_gate=(
+                request.research_entry_gate
             ),
             early_failure_config=(
                 request.early_failure_config

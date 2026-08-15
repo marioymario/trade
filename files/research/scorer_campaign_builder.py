@@ -59,6 +59,7 @@ def build_default_campaign_specification(
     trial_count: int | None = None,
     random_seed: int | None = None,
     research_order_notional_usd: float | None = None,
+    research_entry_policy_id: str | None = None,
 ) -> CampaignSpecification:
     return default_campaign_specification(
         data_tag=trading_config.data_tag,
@@ -73,6 +74,9 @@ def build_default_campaign_specification(
         random_seed=random_seed,
         research_order_notional_usd=(
             research_order_notional_usd
+        ),
+        research_entry_policy_id=(
+            research_entry_policy_id
         ),
     )
 

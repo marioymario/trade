@@ -213,6 +213,7 @@ class CampaignSpecification:
     cost_scenarios: tuple[CostScenario, ...]
 
     research_order_notional_usd: float | None = None
+    research_entry_policy_id: str | None = None
 
     campaign_schema_version: int = (
         CAMPAIGN_SCHEMA_VERSION
@@ -300,6 +301,21 @@ class CampaignSpecification:
                 "when supplied."
             )
 
+        if self.research_entry_policy_id is not None:
+            policy_id = self.research_entry_policy_id.strip()
+
+            if not policy_id:
+                raise CampaignSpecificationError(
+                    "research_entry_policy_id must be non-empty "
+                    "when supplied."
+                )
+
+            if policy_id != self.research_entry_policy_id:
+                raise CampaignSpecificationError(
+                    "research_entry_policy_id must not contain "
+                    "leading or trailing whitespace."
+                )
+
         scenario_ids = [
             scenario.cost_scenario_id
             for scenario in self.cost_scenarios
@@ -364,6 +380,11 @@ class CampaignSpecification:
         if self.research_order_notional_usd is not None:
             payload["research_order_notional_usd"] = float(
                 self.research_order_notional_usd
+            )
+
+        if self.research_entry_policy_id is not None:
+            payload["research_entry_policy_id"] = (
+                self.research_entry_policy_id
             )
 
         return payload
@@ -538,6 +559,7 @@ def default_campaign_specification(
     trial_count: int | None = None,
     random_seed: int | None = None,
     research_order_notional_usd: float | None = None,
+    research_entry_policy_id: str | None = None,
 ) -> CampaignSpecification:
     return CampaignSpecification(
         source_contract=(
@@ -578,5 +600,10 @@ def default_campaign_specification(
             None
             if research_order_notional_usd is None
             else float(research_order_notional_usd)
+        ),
+        research_entry_policy_id=(
+            None
+            if research_entry_policy_id is None
+            else str(research_entry_policy_id)
         ),
     )

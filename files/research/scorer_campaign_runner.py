@@ -17,6 +17,7 @@ from files.research.scorer_campaign_aggregation import (
 from files.research.scorer_campaign_builder import (
     InitializedScorerCampaign,
 )
+from files.backtest.segment_executor import ResearchEntryGate
 from files.research.scorer_campaign_execution import (
     CampaignExecutionError,
     run_campaign_execution,
@@ -341,6 +342,7 @@ def run_scorer_campaign(
     campaign: InitializedScorerCampaign,
     trading_config: TradingConfig,
     continue_after_failure: bool = True,
+    research_entry_gate: ResearchEntryGate | None = None,
 ) -> dict[str, Any]:
     existing_status = load_json_object(
         campaign.artifacts.campaign_status_json
@@ -413,6 +415,7 @@ def run_scorer_campaign(
                 campaign=campaign,
                 trading_config=trading_config,
                 execution_id=execution.execution_id,
+                research_entry_gate=research_entry_gate,
             )
 
             if result.get("status") != "succeeded":

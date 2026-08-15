@@ -14,6 +14,7 @@ from files.strategy.rules import (
 
 
 DecisionWriter = Callable[[dict], str | None]
+ResearchEntryGate = Callable[[object], tuple[bool, str]]
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ class SegmentExecutionRequest:
     writers: SegmentWriterContext
 
     research_order_notional_usd: float | None = None
+    research_entry_gate: ResearchEntryGate | None = None
     early_failure_config: EarlyFailureConfig = (
         EARLY_FAILURE_DISABLED
     )
@@ -572,7 +574,35 @@ def execute_backtest_segment(
                     entry_signal.reason
                 )
 
-                if entry_signal.should_enter:
+                research_gate_allows = True
+
+                if (
+                    entry_signal.should_enter
+                    and request.research_entry_gate
+                    is not None
+                ):
+                    (
+                        research_gate_allows,
+                        research_gate_reason,
+                    ) = request.research_entry_gate(
+                        feats
+                    )
+
+                    research_gate_allows = bool(
+                        research_gate_allows
+                    )
+
+                    if not research_gate_allows:
+                        decision_row[
+                            "entry_blocked_reason"
+                        ] = str(
+                            research_gate_reason
+                        )
+
+                if (
+                    entry_signal.should_enter
+                    and research_gate_allows
+                ):
                     is_final_available_bar = (
                         i + 1 >= len(bars)
                     )

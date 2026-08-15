@@ -91,6 +91,14 @@ def compute_features(market_data: pd.DataFrame, cfg: FeatureConfig = DEFAULT_FEA
     df["atr"] = _atr(high, low, close, cfg.atr_n)
     df["atr_pct"] = df["atr"] / (close + 1e-12)
 
+    candle_range = (high - low).abs()
+    prior_10_mean_range = candle_range.shift(1).rolling(10).mean()
+
+    df["current_range_vs_prior_10_mean"] = (
+        candle_range
+        / (prior_10_mean_range + 1e-12)
+    )
+
     df["rsi"] = _rsi(close, cfg.rsi_n)
 
     df["vol_z"] = _rolling_zscore(vol, cfg.zscore_n)
@@ -114,6 +122,7 @@ def compute_features(market_data: pd.DataFrame, cfg: FeatureConfig = DEFAULT_FEA
         "ema_fast", "ema_slow", "ema_spread", "ema_slow_slope",
         "ema_slow_slope_pct",
         "atr", "atr_pct",
+        "current_range_vs_prior_10_mean",
         "rsi",
         "vol_z", "dollar_vol", "dollar_vol_z",
     ]
