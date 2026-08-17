@@ -40,7 +40,11 @@ services:
       - ./files:/work/files
       - ./ops:/work/ops
       - ./data:/work/data
-      - "${FLAGS_DIR}:${FLAGS_DIR}"
+      - type: bind
+        source: "${FLAGS_DIR}"
+        target: "${FLAGS_DIR}"
+        bind:
+          create_host_path: false
     working_dir: /work
     command: >
       jupyter lab --ip=0.0.0.0 --no-browser
@@ -85,7 +89,11 @@ services:
     volumes:
       - ./files:/work/files
       - ./data:/work/data
-      - "${FLAGS_DIR}:${FLAGS_DIR}"
+      - type: bind
+        source: "${FLAGS_DIR}"
+        target: "${FLAGS_DIR}"
+        bind:
+          create_host_path: false
     working_dir: /work
     command: python -m files.main
 
@@ -109,7 +117,12 @@ services:
       STREAMLIT_SERVER_FILE_WATCHER_TYPE: "poll"
     working_dir: /work
     volumes:
-      - "${FLAGS_DIR}:${FLAGS_DIR}:rw"
+      - type: bind
+        source: "${FLAGS_DIR}"
+        target: "${FLAGS_DIR}"
+        read_only: false
+        bind:
+          create_host_path: false
       - ./files:/work/files:ro
       - ./event_risk:/work/event_risk:ro
       - ./data:/work/data:ro
