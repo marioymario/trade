@@ -1,5 +1,8 @@
 services:
   trade:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.gpu
     gpus: all
     shm_size: "1g"
     ipc: host

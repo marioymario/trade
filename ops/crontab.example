@@ -1,11 +1,20 @@
-# ops/crontab.example
-# Install on TARGET user:
-#   crontab -e
-# Paste these lines (adjust repo path if different):
+# MJÖLNIR optional cron jobs
+#
+# Runtime startup and heartbeat are managed by user-systemd:
+#
+#   trade-stack.service
+#   trade-heartbeat.service
+#   trade-heartbeat.timer
+#
+# Install those with:
+#
+#   ./ops/install_user_systemd.sh
+#
+# Do NOT configure duplicate @reboot or heartbeat cron jobs.
+#
+# Cron may still be used for optional host-specific maintenance jobs.
+# Those jobs are not required for the normal portable installation.
 
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 MAILTO=""
-
-@reboot /bin/bash -lc '/home/kk7wus/Projects/trade/ops/cron_reboot.sh'
-*/10 * * * * /bin/bash -lc '/home/kk7wus/Projects/trade/ops/cron_heartbeat.sh'

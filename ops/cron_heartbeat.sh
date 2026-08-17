@@ -52,7 +52,8 @@ _exists() {
 
   exec >>"$LOG" 2>&1
 
-  PROJ="${HOME}/Projects/trade"
+  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  PROJ="${PROJ:-$REPO_ROOT}"
   cd "$PROJ" || exit 1
 
   load_env_allowlist "$PROJ/.env"

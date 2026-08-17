@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/tensorflow:25.01-tf2-py3
+FROM python:3.11
 
 WORKDIR /work
 

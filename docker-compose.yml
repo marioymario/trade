@@ -40,7 +40,7 @@ services:
       - ./files:/work/files
       - ./ops:/work/ops
       - ./data:/work/data
-      - /home/kk7wus/trade_flags:/home/kk7wus/trade_flags
+      - "${FLAGS_DIR}:${FLAGS_DIR}"
     working_dir: /work
     command: >
       jupyter lab --ip=0.0.0.0 --no-browser
@@ -85,7 +85,7 @@ services:
     volumes:
       - ./files:/work/files
       - ./data:/work/data
-      - /home/kk7wus/trade_flags:/home/kk7wus/trade_flags
+      - "${FLAGS_DIR}:${FLAGS_DIR}"
     working_dir: /work
     command: python -m files.main
 
@@ -104,12 +104,12 @@ services:
     environment:
       PYTHONPATH: /work
       TZ: America/Los_Angeles
-      FLAGS_DIR: "/home/kk7wus/trade_flags"
+      FLAGS_DIR: "${FLAGS_DIR}"
       STREAMLIT_SERVER_RUN_ON_SAVE: "true"
       STREAMLIT_SERVER_FILE_WATCHER_TYPE: "poll"
     working_dir: /work
     volumes:
-      - /home/kk7wus/trade_flags:/home/kk7wus/trade_flags:rw
+      - "${FLAGS_DIR}:${FLAGS_DIR}:rw"
       - ./files:/work/files:ro
       - ./event_risk:/work/event_risk:ro
       - ./data:/work/data:ro
