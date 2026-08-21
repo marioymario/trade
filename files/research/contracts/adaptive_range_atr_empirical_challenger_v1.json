@@ -1,0 +1,146 @@
+{
+  "adaptive_range_schedule": {
+    "validate_2023_h1": {
+      "range_symbols": []
+    },
+    "validate_2023_h2": {
+      "range_symbols": [
+        "BTC/USD",
+        "ADA/USD",
+        "XLM/USD",
+        "LINK/USD",
+        "DOGE/USD"
+      ]
+    },
+    "validate_2024": {
+      "range_symbols": [
+        "BTC/USD",
+        "SOL/USD",
+        "ADA/USD",
+        "XLM/USD",
+        "LINK/USD",
+        "DOGE/USD"
+      ]
+    },
+    "validate_2025": {
+      "range_symbols": [
+        "BTC/USD",
+        "SOL/USD",
+        "ADA/USD",
+        "XLM/USD",
+        "LINK/USD"
+      ]
+    },
+    "validate_2026_reserve": {
+      "asset_policy": {
+        "ADA/USD": "range_v1_ge_1_25",
+        "BTC/USD": "range_v1_ge_1_25",
+        "DOGE/USD": "range_v1_ge_1_25",
+        "ETH/USD": "range_v1_ge_1_25",
+        "LINK/USD": "range_v1_ge_1_25",
+        "LTC/USD": "range_v1_baseline",
+        "SOL/USD": "range_v1_ge_1_25",
+        "XLM/USD": "range_v1_ge_1_25"
+      },
+      "baseline_symbols": [
+        "LTC/USD"
+      ],
+      "derivation_rule": "Use RANGE iff 2025 RANGE P&L exceeded 2025 BASELINE P&L.",
+      "derived_before_2026_reserve_consumption": true,
+      "range_symbols": [
+        "BTC/USD",
+        "ETH/USD",
+        "SOL/USD",
+        "ADA/USD",
+        "XLM/USD",
+        "LINK/USD",
+        "DOGE/USD"
+      ],
+      "selection_evidence_cutoff": "2026-01-01T00:00:00Z"
+    }
+  },
+  "candidate": {
+    "atr_feature": "atr_pct",
+    "atr_floor": 0.005,
+    "baseline_policy_id": "range_v1_baseline",
+    "policy_id": "adaptive_range_atr_ge_0_005",
+    "range_feature": "current_range_vs_prior_10_mean",
+    "range_policy_id": "range_v1_ge_1_25",
+    "range_threshold": 1.25
+  },
+  "contract_id": "adaptive_range_atr_empirical_challenger_v1",
+  "development_evidence": {
+    "asset_period_count": 32,
+    "asset_periods_not_worse_than_control": 26,
+    "candidate_delta_pnl_usd": 128.757936,
+    "candidate_total_pnl_usd": 381.579326,
+    "control_total_pnl_usd": 252.82139,
+    "development_experiment_id": "adaptive_range_atr_development_v1",
+    "period_count": 4,
+    "positive_period_count": 4
+  },
+  "execution_contract": {
+    "base_fee_bps": 8.0,
+    "base_slippage_bps": 5.0,
+    "event_risk_connected": false,
+    "long_only": true,
+    "research_order_notional_usd": 100.0,
+    "scorer_trial_id": "baseline",
+    "short_enabled": false,
+    "strategy_and_exit_behavior": "UNCHANGED_FROM_VERIFIED_DEVELOPMENT_EXPERIMENT",
+    "timeframe": "5m"
+  },
+  "final_reserve": {
+    "adaptive_range_policy_frozen": true,
+    "consumed": false,
+    "end_exclusive": "2026-02-09T00:00:00Z",
+    "maximum_permitted_consumptions": 1,
+    "start_inclusive": "2026-01-01T00:00:00Z"
+  },
+  "freeze_rules": {
+    "adaptive_range_schedule_changes_before_reserve": false,
+    "additional_atr_threshold_search_before_reserve": false,
+    "asset_removal_before_reserve": false,
+    "asset_specific_atr_thresholds_before_reserve": false,
+    "cost_assumption_changes_before_reserve": false,
+    "repair_after_viewing_reserve": false,
+    "scorer_changes_before_reserve": false,
+    "stop_or_exit_changes_before_reserve": false
+  },
+  "interpretation": {
+    "mechanism_proven": false,
+    "production_approved": false,
+    "reserve_test_purpose": "Test whether the observed empirical advantage generalizes to data that played no role in candidate discovery or selection.",
+    "robustness_fail_overridden": false
+  },
+  "purpose": "One terminal unseen-reserve falsification test on the protected 2026 interval.",
+  "research_universe": {
+    "symbols": [
+      "BTC/USD",
+      "ETH/USD",
+      "SOL/USD",
+      "ADA/USD",
+      "XLM/USD",
+      "LINK/USD",
+      "DOGE/USD",
+      "LTC/USD"
+    ],
+    "universe_fingerprint": "f6f75adb7161a9d051a52c18967ffce0d30bcb38c5911cf958d18c2b5ba0454a",
+    "universe_id": "research_universe_coinbase_usd_v1"
+  },
+  "robustness_evidence": {
+    "absolute_high_cost_profitability": "FAIL",
+    "asset_periods_with_drawdown_deterioration_over_25_percent": 2,
+    "candidate_median_asset_period_drawdown_usd": 13.324454031210056,
+    "control_median_asset_period_drawdown_usd": 17.004569936964316,
+    "formal_decision": "FAIL",
+    "leave_one_asset_out_all_beat_control": true,
+    "leave_one_asset_out_all_positive": true,
+    "leave_one_period_out_all_beat_control": true,
+    "leave_one_period_out_all_positive": true,
+    "relative_cost_robustness": "PASS",
+    "robustness_experiment_id": "adaptive_range_atr_robustness_v1",
+    "structural_robustness": "PASS"
+  },
+  "status": "FROZEN_EMPIRICAL_CHALLENGER"
+}
